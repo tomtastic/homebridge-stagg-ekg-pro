@@ -100,10 +100,9 @@ class StaggEKGProWifiHandler {
         service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
             .setProps({ validValues: [0, 1] })
             .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const value = client.parseState(body);
-                if (value === null) throw new Error(`unrecognised state: ${body.trim()}`);
-                return value;
+                const { isHeating } = await client.readState();
+                if (isHeating === null) throw new Error('unrecognised state');
+                return isHeating;
             })
             .onSet(async (value) => {
                 await client.commandAsync(`setstate ${client.stateForHomeKit(value)}`);
@@ -112,18 +111,16 @@ class StaggEKGProWifiHandler {
         service.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
             .setProps({ validValues: [0, 1] })
             .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const value = client.parseState(body);
-                if (value === null) throw new Error(`unrecognised state: ${body.trim()}`);
-                return value;
+                const { isHeating } = await client.readState();
+                if (isHeating === null) throw new Error('unrecognised state');
+                return isHeating;
             });
 
         service.getCharacteristic(Characteristic.TargetTemperature)
             .setProps({ minValue: minTemp, maxValue: maxTemp })
             .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const targetC = client.parseTargetTemp(body);
-                if (targetC === null) throw new Error(`could not parse target temp: ${body.trim()}`);
+                const { targetC } = await client.readState();
+                if (targetC === null) throw new Error('could not parse target temp');
                 return targetC;
             })
             .onSet(async (value) => {
@@ -138,8 +135,7 @@ class StaggEKGProWifiHandler {
         service.getCharacteristic(Characteristic.CurrentTemperature)
             .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
-                const body = await client.commandAsync('state');
-                const tempC = client.parseTemp(body);
+                const { tempC } = await client.readState();
                 if (tempC === null) {
                     temperaturePolling?.markTemperatureUnavailable();
                     log.info('No temp data, is kettle off its base?');
@@ -150,9 +146,7 @@ class StaggEKGProWifiHandler {
 
         // Periodic polling with configurable intervals for heating vs idle
         temperaturePolling = startTempPolling(log, config, async (idleTemperatureDue) => {
-            const body = await client.commandAsync('state');
-            const isHeating = client.parseState(body);
-            const tempC = client.parseTemp(body);
+            const { isHeating, tempC } = await client.readState();
             let temperatureUpdated = false;
             if (isHeating === 1 || idleTemperatureDue) {
                 if (tempC !== null) {

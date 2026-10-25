@@ -251,3 +251,60 @@ test('stateForHomeKit: value=true (boolean) maps to S_Off not S_Heat', () => {
   assert.strictEqual(client.stateForHomeKit(true), 'S_Off')
   assert.strictEqual(client.stateForHomeKit(1), 'S_Heat')
 })
+
+banner('parseTempJson (firmware 1.2.26 /temp endpoint)')
+
+const TEMP_JSON_OFF = '{"temp":24.86,"temp_set":93.00,"state":"S_Off","pwm":-10,"timestamp":1761500000}'
+const TEMP_JSON_HEAT = '{"temp":88.16,"temp_set":83.89,"state":"S_Heat","pwm":50,"timestamp":1761500000}'
+
+test('parseTempJson parses the live S_Off payload', () => {
+  assert.deepStrictEqual(client.parseTempJson(TEMP_JSON_OFF), { state: 'S_Off', tempC: 24.86, targetC: 93 })
+})
+
+test('parseTempJson parses the S_Heat payload for parseState', () => {
+  const parsed = client.parseTempJson(TEMP_JSON_HEAT)
+  assert.strictEqual(parsed.state, 'S_Heat')
+  assert.strictEqual(client.parseState(parsed.state), 1)
+  assert.strictEqual(parsed.tempC, 88.16)
+  assert.strictEqual(parsed.targetC, 83.89)
+})
+
+test('parseTempJson applies the 0-100 C guard to temp', () => {
+  assert.strictEqual(client.parseTempJson('{"temp":1885156601,"temp_set":93,"state":"S_Off"}').tempC, null)
+  assert.strictEqual(client.parseTempJson('{"temp":-1,"temp_set":93,"state":"S_Off"}').tempC, null)
+  assert.strictEqual(client.parseTempJson('{"temp":100.1,"temp_set":93,"state":"S_Off"}').tempC, null)
+})
+
+test('parseTempJson treats null and nan temps as unavailable', () => {
+  assert.strictEqual(client.parseTempJson('{"temp":null,"temp_set":93,"state":"S_Off"}').tempC, null)
+  assert.strictEqual(client.parseTempJson('{"temp":"nan","temp_set":93,"state":"S_Off"}').tempC, null)
+})
+
+test('parseTempJson returns null targetC when temp_set is missing or null', () => {
+  assert.strictEqual(client.parseTempJson('{"temp":24.86,"state":"S_Off"}').targetC, null)
+  assert.strictEqual(client.parseTempJson('{"temp":24.86,"temp_set":null,"state":"S_Off"}').targetC, null)
+})
+
+test('parseTempJson returns null for malformed JSON, non-objects, or missing state', () => {
+  assert.strictEqual(client.parseTempJson('<html><form action="cli"></form></html>'), null)
+  assert.strictEqual(client.parseTempJson('{"temp":24.86,"temp_set":93}'), null)
+  assert.strictEqual(client.parseTempJson('24.86'), null)
+  assert.strictEqual(client.parseTempJson('[1,2,3]'), null)
+  assert.strictEqual(client.parseTempJson(''), null)
+})
+
+banner('constructor URL derivation')
+
+test('constructor derives /temp from a bare base URL', () => {
+  const c = new StaggEKGProClient('http://kettle.local')
+  assert.strictEqual(c.cliUrl, 'http://kettle.local/cli')
+  assert.strictEqual(c.tempUrl, 'http://kettle.local/temp')
+})
+
+test('constructor derives /temp when the config URL points at /cli', () => {
+  for (const url of ['http://kettle.local/cli', 'http://kettle.local/cli?x=1']) {
+    const c = new StaggEKGProClient(url)
+    assert.strictEqual(c.cliUrl, 'http://kettle.local/cli')
+    assert.strictEqual(c.tempUrl, 'http://kettle.local/temp')
+  }
+})
