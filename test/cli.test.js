@@ -38,3 +38,44 @@ test('clock command uses the system local time', () => {
     const date = new Date(2026, 7, 14, 9, 5, 3)
     assert.strictEqual(client.clockCommand(date), 'setclock 9 5 3')
 })
+
+banner('time zone aware clock sync')
+
+// One instant, two zones: 11:00:45 UTC is 12:00:45 in London (BST) and
+// 07:00:45 in New York (EDT).
+const SUMMER_UTC = new Date('2026-08-14T11:00:45Z')
+
+test('clock command honours the configured time zone', () => {
+    const london = new StaggEKGProClient('http://kettle.local', { timeZone: 'Europe/London' })
+    const newYork = new StaggEKGProClient('http://kettle.local', { timeZone: 'America/New_York' })
+    assert.strictEqual(london.clockCommand(SUMMER_UTC), 'setclock 12 0 45')
+    assert.strictEqual(newYork.clockCommand(SUMMER_UTC), 'setclock 7 0 45')
+})
+
+test('midnight in the target zone is hour 0, not 24', () => {
+    const london = new StaggEKGProClient('http://kettle.local', { timeZone: 'Europe/London' })
+    assert.strictEqual(london.clockCommand(new Date('2026-08-14T23:00:00Z')), 'setclock 0 0 0')
+})
+
+test('standard time offsets are applied too', () => {
+    const london = new StaggEKGProClient('http://kettle.local', { timeZone: 'Europe/London' })
+    const newYork = new StaggEKGProClient('http://kettle.local', { timeZone: 'America/New_York' })
+    const winterUtc = new Date('2026-01-15T00:30:00Z')
+    assert.strictEqual(london.clockCommand(winterUtc), 'setclock 0 30 0')
+    assert.strictEqual(newYork.clockCommand(winterUtc), 'setclock 19 30 0')
+})
+
+test('a blank or absent time zone keeps the host local time', () => {
+    const blank = new StaggEKGProClient('http://kettle.local', { timeZone: '   ' })
+    assert.strictEqual(blank.timeZone, null)
+    assert.strictEqual(new StaggEKGProClient('http://kettle.local').timeZone, null)
+    assert.strictEqual(blank.clockCommand(new Date(2026, 7, 14, 9, 5, 3)), 'setclock 9 5 3')
+})
+
+test('isValidTimeZone accepts IANA zones and rejects the rest', () => {
+    assert.strictEqual(StaggEKGProClient.isValidTimeZone('Europe/London'), true)
+    assert.strictEqual(StaggEKGProClient.isValidTimeZone('UTC'), true)
+    assert.strictEqual(StaggEKGProClient.isValidTimeZone('Not/AZone'), false)
+    assert.strictEqual(StaggEKGProClient.isValidTimeZone(''), false)
+    assert.strictEqual(StaggEKGProClient.isValidTimeZone(undefined), false)
+})

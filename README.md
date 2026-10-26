@@ -43,7 +43,8 @@ registry=https://registry.npmjs.org/
                 "maxTemp": 100,
                 "pollIntervalHeating": 10000,
                 "pollIntervalIdle": 1800000,
-                "syncTime": true
+                "syncTime": true,
+                "timeZone": "Europe/London"
             }
         ]
     }
@@ -61,6 +62,7 @@ Each entry in `kettles` becomes one accessory in HomeKit.
 | `pollIntervalHeating` | no | Temperature polling interval while heating, in milliseconds (default: 10000 / 10 seconds) |
 | `pollIntervalIdle` | no | Temperature polling interval while idle, in milliseconds (default: 1800000 / 30 minutes) |
 | `syncTime` | no | Set the kettle clock to the host system's local time when Homebridge starts and once per day (default: `false`) |
+| `timeZone` | no | IANA time zone name used for clock sync, e.g. `Europe/London`. Blank = the Homebridge host timezone |
 
 The plugin polls the kettle at `pollIntervalHeating` while heating and at
 `pollIntervalIdle` while idle, so an idle kettle only touches `/temp` at the
@@ -69,6 +71,16 @@ from the last poll, and a live read only happens before the first successful
 poll, so reads never wait on the kettle. These settings are configured
 separately for each kettle. A kettle started on the device itself is picked up
 at the next poll (within `pollIntervalIdle` while idle).
+
+### Target temperature precision
+
+The kettle stores its setpoint in whole degrees Fahrenheit, so a HomeKit target
+entered in °C is quantised to ~0.56 °C steps: 93 °C is held as 199 °F and the
+kettle reports it back as 92.7778 °C. The plugin echoes the °C value you set for
+as long as the kettle reports that same stored setpoint, so HomeKit keeps showing
+93 °C instead of 92.8 °C. As soon as the reported target moves somewhere else —
+turned on the kettle's dial, for example — the kettle's own value is reported
+again, at the next read or poll.
 
 ## Firmware analysis
 
@@ -95,6 +107,8 @@ Firmware 1.2.26+ no longer prints `state` output from the CLI endpoint and inste
 The firmware emits a bare `nan` for `temp` (invalid JSON) when the sensor has no reading, for example while the kettle is off its base. The plugin sanitizes this and keeps reporting the last known temperature; the kettle state and target remain available in that situation. If the kettle state cannot be read at all (e.g. a transient `/temp` failure on firmware 1.2.26, where the legacy `state` CLI no longer prints anything), the plugin reports a HomeKit communication failure so the last known values are kept rather than logging a plugin error.
 
 Set `syncTime` to `true` to synchronize the kettle clock with the local time of the system running Homebridge during module initialization and once every 24 hours. The plugin uses the kettle's `setclock` CLI command.
+
+Clock sync uses the host timezone by default, which is UTC in most Docker containers. Set `timeZone` to an IANA zone name (e.g. `Europe/London`, `America/New_York`) to set the kettle clock to a specific zone instead. An unrecognised name is logged once when Homebridge starts and clock sync falls back to the host timezone.
 
 ## Homebridge UI
 

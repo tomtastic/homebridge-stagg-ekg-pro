@@ -2,6 +2,7 @@
 
 const StaggEKGProClient = require('./lib/stagg-ekg-pro-client')
 const { startTempPolling } = require('./lib/temperature-polling')
+const { TargetTemperatureEcho } = require('./lib/target-temperature-echo')
 
 module.exports = (api) => {
     api.registerPlatform('homebridge-stagg-ekg-pro', 'StaggKettle', StaggKettlePlatform);
@@ -70,7 +71,8 @@ class StaggKettlePlatform {
 
 class StaggEKGProWifiHandler {
     constructor(log, config, accessory, Service, Characteristic, HapStatusError, HAPStatus) {
-        const client = new StaggEKGProClient(config.url);
+        const timeZone = resolveTimeZone(log, config);
+        const client = new StaggEKGProClient(config.url, { timeZone });
         const minTemp = typeof config.minTemp === 'number' ? config.minTemp : 40;
         const maxTemp = typeof config.maxTemp === 'number' ? config.maxTemp : 100;
 
@@ -100,6 +102,13 @@ class StaggEKGProWifiHandler {
         // live read only happens before the first successful poll.
         let lastState = null;
         let lastTempC = null;
+
+        // The kettle stores its setpoint in whole °F, so a °C target set from
+        // HomeKit comes back quantised (93 °C is stored as 199 °F and reported
+        // as 92.7778 °C). The echo reports the commanded °C while the kettle
+        // confirms that same setpoint, and gets out of the way as soon as the
+        // reported target moves somewhere else.
+        const targetEcho = new TargetTemperatureEcho(client);
 
         const readState = async () => {
             if (lastState) return lastState;
@@ -147,7 +156,7 @@ class StaggEKGProWifiHandler {
                     log.info(`Kettle target temp unavailable, is the kettle off its base or unreachable?`);
                     throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
                 }
-                return targetC;
+                return targetEcho.resolve(targetC);
             })
             .onSet(async (value) => {
                 try {
@@ -156,6 +165,8 @@ class StaggEKGProWifiHandler {
                         client.commandAsync(`setsetting settempr ${targetF}`),
                         client.commandAsync(`setstate S_Heat`),
                     ]);
+                    // Only echo a target the kettle actually accepted.
+                    targetEcho.command(value);
                 } catch (err) {
                     log.warn(`Failed to set kettle temperature: ${err.message}`);
                     throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
@@ -215,4 +226,17 @@ class StaggEKGProWifiHandler {
             .onGet(async () => 0)
             .onSet(async () => {});
     }
+}
+
+// Validate the configured IANA zone once per accessory so a typo is reported
+// once at startup instead of on every clock sync. Returns null to mean "use the
+// Homebridge host timezone".
+function resolveTimeZone(log, config) {
+    const name = typeof config.timeZone === 'string' ? config.timeZone.trim() : '';
+    if (!name) return null;
+    if (!StaggEKGProClient.isValidTimeZone(name)) {
+        log.warn(`Unrecognised timeZone "${name}" for ${config.name || 'kettle'} — using the Homebridge host timezone.`);
+        return null;
+    }
+    return name;
 }

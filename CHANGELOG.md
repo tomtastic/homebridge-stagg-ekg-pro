@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.3](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.3) - 2026-10-26
+
+### Fixed
+
+- `TargetTemperature` no longer drifts to the kettle's quantised setpoint after a HomeKit write. The kettle stores whole degrees Fahrenheit, so setting 93 °C came back as 92.7778 °C and HomeKit displayed the quantised value. The plugin now reports the °C it commanded while the kettle confirms the matching stored setpoint, and reports the kettle's own target as soon as it moves elsewhere (e.g. turned on the dial).
+- Clock sync (`syncTime`) no longer silently uses UTC when Homebridge runs in a container that has no local timezone configured.
+
+### Added
+
+- Optional per-kettle `timeZone` — an IANA zone name such as `Europe/London` — that `syncTime` uses to set the kettle clock. Blank (the default) keeps using the Homebridge host timezone. An unrecognised zone is logged once during startup and clock sync falls back to the host timezone.
+
 ## [1.2.2](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.2) - 2026-10-26
 
 ### Fixed

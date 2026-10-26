@@ -67,6 +67,12 @@
               "title": "Sync Kettle Clock",
               "description": "Set the kettle clock to the host system's local time when Homebridge starts and once per day.",
               "default": false
+            },
+            "timeZone": {
+              "type": "string",
+              "title": "Time Zone",
+              "description": "IANA time zone name used when syncing the kettle clock, e.g. Europe/London. Leave blank to use the Homebridge host timezone (UTC in most Docker containers).",
+              "placeholder": "Europe/London"
             }
           },
           "required": [
