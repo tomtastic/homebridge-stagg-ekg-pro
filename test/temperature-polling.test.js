@@ -33,27 +33,24 @@ test('idle temperature is published immediately and then at its own interval', a
 
   await Promise.resolve()
   assert.deepStrictEqual(idleTemperatureDue, [true])
-  assert.strictEqual(scheduled.delay, 10)
-
-  time = 10
-  scheduled.fn()
-  await Promise.resolve()
-  assert.deepStrictEqual(idleTemperatureDue, [true, false])
+  // An idle kettle waits the full idle interval for the next poll.
+  assert.strictEqual(scheduled.delay, 30)
 
   time = 30
   scheduled.fn()
   await Promise.resolve()
-  assert.deepStrictEqual(idleTemperatureDue, [true, false, true])
+  assert.deepStrictEqual(idleTemperatureDue, [true, true])
+  assert.strictEqual(scheduled.delay, 30)
 })
 
-test('state continues polling at the heating interval while idle', async () => {
+test('state is polled at the heating interval while heating and the idle interval while idle', async () => {
   let scheduled
   let polls = 0
-  const states = [0, 1]
+  const states = [1, 1, 0]
 
   startTempPolling({ debug() {} }, {
     pollIntervalHeating: 10,
-    pollIntervalIdle: 1800000,
+    pollIntervalIdle: 30,
   }, async () => ({
     isHeating: states[polls++],
     temperatureUpdated: true,
@@ -68,6 +65,10 @@ test('state continues polling at the heating interval while idle', async () => {
   await Promise.resolve()
   assert.strictEqual(polls, 2)
   assert.strictEqual(scheduled.delay, 10)
+  scheduled.fn()
+  await Promise.resolve()
+  assert.strictEqual(polls, 3)
+  assert.strictEqual(scheduled.delay, 30)
 })
 
 test('temperature is due immediately after an off-base reading', async () => {

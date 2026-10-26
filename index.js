@@ -92,9 +92,18 @@ class StaggEKGProWifiHandler {
         const service = accessory.getService(Service.Thermostat)
             || accessory.addService(Service.Thermostat);
 
+        // The poll loop refreshes these at the heating or idle cadence;
+        // characteristic reads are served from the cache so a HomeKit read
+        // never has to wait on the kettle, which serializes /temp requests
+        // and can push a read past Homebridge's slow-handler threshold. A
+        // live read only happens before the first successful poll.
+        let lastState = null;
+        let lastTempC = null;
+
         const readState = async () => {
+            if (lastState) return lastState;
             try {
-                return await client.readState();
+                lastState = await client.readState();
             } catch (err) {
                 if (err instanceof StaggEKGProClient.StateUnavailableError) {
                     // A transient /temp or CLI failure (firmware 1.2.26 serves
@@ -106,6 +115,7 @@ class StaggEKGProWifiHandler {
                 }
                 throw err;
             }
+            return lastState;
         };
 
         service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
@@ -147,18 +157,24 @@ class StaggEKGProWifiHandler {
         service.getCharacteristic(Characteristic.CurrentTemperature)
             .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
-                const { tempC } = await readState();
-                if (tempC === null) {
-                    temperaturePolling?.markTemperatureUnavailable();
-                    log.info('No temp data, is kettle off its base?');
-                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                if (lastTempC === null) {
+                    const { tempC } = await readState();
+                    if (tempC === null) {
+                        temperaturePolling?.markTemperatureUnavailable();
+                        log.info('No temp data, is kettle off its base?');
+                        throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                    }
+                    lastTempC = tempC;
                 }
-                return tempC;
+                return lastTempC;
             });
 
         // Periodic polling with configurable intervals for heating vs idle
         temperaturePolling = startTempPolling(log, config, async (idleTemperatureDue) => {
-            const { isHeating, tempC } = await client.readState();
+            const state = await client.readState();
+            const { isHeating, tempC } = state;
+            lastState = state;
+            if (tempC !== null) lastTempC = tempC;
             let temperatureUpdated = false;
             if (isHeating === 1 || idleTemperatureDue) {
                 if (tempC !== null) {
