@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -23,6 +23,7 @@ jobs:
       - name: Test
         run: npm test
       - name: Stage publish to npmjs
+        id: npmjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -59,3 +60,21 @@ jobs:
             cat publish.log
             exit 1
           fi
+      # Homebridge UI shows the GitHub Release notes for a version; create
+      # the release from the tag's commit message (skip if it already exists).
+      - name: Create GitHub release
+        if: steps.npmjs.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, skipping"
+            exit 0
+          fi
+          notes_file=$(mktemp)
+          git log -1 --format=%B "$GITHUB_REF_NAME" > "$notes_file"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "v${GITHUB_REF_NAME#v}" \
+            --notes-file "$notes_file" \
+            --target "$GITHUB_SHA" \
+            --latest
