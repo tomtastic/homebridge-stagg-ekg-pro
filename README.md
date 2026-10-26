@@ -70,6 +70,22 @@ poll, so reads never wait on the kettle. These settings are configured
 separately for each kettle. A kettle started on the device itself is picked up
 at the next poll (within `pollIntervalIdle` while idle).
 
+## Firmware analysis
+
+The HTTP interface this plugin uses was reverse engineered from the kettle's firmware
+images. The full write-ups live in the
+[project wiki](https://github.com/tomtastic/homebridge-stagg-ekg-pro/wiki), one page per release:
+
+| Firmware | Analysis | Highlights |
+|---|---|---|
+| 1.2.26 | [v1.2.26 analysis](https://github.com/tomtastic/homebridge-stagg-ekg-pro/wiki/1.2.26) | Current firmware. Google Cloud IoT Core removed — the only remote dependency is the Fellow OTA server, which now also receives session telemetry. Kettle state is JSON at `GET /temp` (the CLI no longer prints `state`). Adds a triac thermal model, plateau/fast-rise boil heuristics, user calibration and direct heater-test/PWM endpoints. |
+| 1.1.76SSP | [v1.1.76SSP analysis](https://github.com/tomtastic/homebridge-stagg-ekg-pro/wiki/1.1.76SSP) | Feature update over v1.1.75SSP: local `/upload` and `/uploadfw` firmware upload, RSA-PSS-signed OTA, an 8-language UI, factory reset, and the new `settempr`, altitude and units CLI commands. |
+| 1.1.75SSP | [v1.1.75SSP analysis](https://github.com/tomtastic/homebridge-stagg-ekg-pro/wiki/v1.1.75SSP) | Baseline teardown: ESP32 architecture, cloud MQTT connectivity, the local HTTP API and observed CLI commands, device states, BLE GATT and default credentials. |
+
+Every page covers the local HTTP/CLI interface, the BLE GATT services and Wi-Fi provisioning,
+the cloud and OTA endpoints, firmware/ELF hashes for identification, and the changes from the
+previous release.
+
 ## Wi-Fi CLI
 
 Talks directly to the EKG Pro's built-in HTTP CLI (`/cli?cmd=...`). Requires firmware that supports `setstate` and `setsetting settempr`.
