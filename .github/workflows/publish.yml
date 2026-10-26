@@ -27,11 +27,25 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm pkg set name="homebridge-stagg-ekg-pro"
-          npm stage publish --registry https://registry.npmjs.org
+          # npm does not read NODE_AUTH_TOKEN itself; write the token for
+          # the target registry into .npmrc (setup-node only does this when
+          # registry-url is set).
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          set -o pipefail
+          if npm stage publish --registry https://registry.npmjs.org 2>&1 | tee publish.log; then
+            exit 0
+          fi
+          if grep -qE "EPUBLISHCONFLICT|already published|cannot publish over" publish.log; then
+            echo "npmjs: version already published, skipping"
+          else
+            cat publish.log
+            exit 1
+          fi
       - name: Publish to GitHub Packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
           set -o pipefail
           if npm publish 2>&1 | tee publish.log; then
             exit 0
