@@ -1,8 +1,8 @@
 # homebridge-stagg-ekg-pro
 
+<img width="100" height="100" alt="stagg_ekg_pro_icon" src="https://github.com/user-attachments/assets/ada8283a-e9b8-42fd-a9d5-e59136745c22" />
 Homebridge plugin for the Fellow Stagg EKG Pro, talking to the kettle over Wi-Fi via its built-in HTTP CLI API.
 
-Fork of [calvinmclean/homebridge-kettle](https://github.com/calvinmclean/homebridge-kettle).
 
 ## Install
 
