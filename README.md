@@ -93,11 +93,11 @@ git tag v1.1.2
 git push tomtastic main v1.1.2
 ```
 
-3. Approve the staged version on npmjs. This requires the `trcm` npm account (with 2FA enabled) to be logged in locally — `npm login` once — and the code from your authenticator app:
+3. Approve the staged version on npmjs. This requires the `trcm` npm account (with 2FA enabled) to be logged in locally — `npm login` once — and the code from your authenticator app. `npm stage list` shows the pending stage and its id:
 
 ```
 npm stage list
-npm stage approve --otp <code>
+npm stage approve <stage-id> --otp <code>
 ```
 
 `npm stage view <version>` and `npm stage download <version>` let you inspect a stage before approving; `npm stage reject <version>` discards it. Once approved the version is live on npmjs and Homebridge UI shows the update. Each release needs a new version — republishing an existing version fails.
