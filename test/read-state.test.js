@@ -87,6 +87,21 @@ async function main() {
     } finally { stub.restore() }
   })
 
+  await run('readState tolerates the bare nan temp from /temp without hitting the CLI', async () => {
+    const client = new StaggEKGProClient('http://kettle.local')
+    const stub = stubFetch([
+      { match: '/temp', body: '{"temp":nan,"temp_set":33.89,"state":"S_Off","pwm":-10,"timestamp":1761500000}' },
+      { match: '/cli', body: STATE_OUTPUT_OFF },
+    ])
+    try {
+      const state = await client.readState()
+      assert.strictEqual(state.isHeating, 0)
+      assert.strictEqual(state.tempC, null)
+      assert.strictEqual(state.targetC, 33.89)
+      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
+    } finally { stub.restore() }
+  })
+
   await run('readState falls back to the CLI state command when /temp 404s', async () => {
     const client = new StaggEKGProClient('http://kettle.local')
     const stub = stubFetch([

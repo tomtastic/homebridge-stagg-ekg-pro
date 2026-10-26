@@ -149,6 +149,15 @@ class StaggEKGProWifiHandler {
                     temperatureUpdated = true;
                 }
             }
+            if (isHeating !== null && isHeating !== service.getValue(Characteristic.CurrentHeatingCoolingState)) {
+                // The kettle changed state (started on the device, finished
+                // boiling, or was powered off). Push both states so HomeKit
+                // clients do not keep showing the stale heating state; the
+                // target mirrors the current state, matching what the read
+                // handlers return.
+                service.updateCharacteristic(Characteristic.CurrentHeatingCoolingState, isHeating);
+                service.updateCharacteristic(Characteristic.TargetHeatingCoolingState, isHeating);
+            }
             return {
                 isHeating,
                 temperatureUpdated,

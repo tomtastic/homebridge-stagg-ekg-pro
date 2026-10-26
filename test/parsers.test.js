@@ -280,6 +280,17 @@ test('parseTempJson treats null and nan temps as unavailable', () => {
   assert.strictEqual(client.parseTempJson('{"temp":"nan","temp_set":93,"state":"S_Off"}').tempC, null)
 })
 
+test('parseTempJson tolerates the bare nan temp emitted by firmware 1.2.26', () => {
+  const parsed = client.parseTempJson('{"temp":nan,"temp_set":93.00,"state":"S_Off","pwm":-10,"timestamp":1761500000}')
+  assert.strictEqual(parsed.state, 'S_Off')
+  assert.strictEqual(client.parseState(parsed.state), 0)
+  assert.strictEqual(parsed.tempC, null)
+  assert.strictEqual(parsed.targetC, 93)
+  const upper = client.parseTempJson('{"temp":NaN,"temp_set":33.89,"state":"S_Off"}')
+  assert.strictEqual(upper.tempC, null)
+  assert.strictEqual(upper.targetC, 33.89)
+})
+
 test('parseTempJson returns null targetC when temp_set is missing or null', () => {
   assert.strictEqual(client.parseTempJson('{"temp":24.86,"state":"S_Off"}').targetC, null)
   assert.strictEqual(client.parseTempJson('{"temp":24.86,"temp_set":null,"state":"S_Off"}').targetC, null)
