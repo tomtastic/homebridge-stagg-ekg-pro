@@ -74,12 +74,13 @@ class StaggEKGProWifiHandler {
         const minTemp = typeof config.minTemp === 'number' ? config.minTemp : 40;
         const maxTemp = typeof config.maxTemp === 'number' ? config.maxTemp : 100;
 
+        let initialClockSync;
         if (config.syncTime === true) {
             const syncClock = () => client.syncClock()
                 .then(() => log.info(`Synced ${config.name || 'kettle'} clock to local time.`))
                 .catch(err => log.warn(`Could not sync ${config.name || 'kettle'} clock: ${err.message}`));
 
-            syncClock();
+            initialClockSync = syncClock();
             this.clockSyncInterval = setInterval(syncClock, 24 * 60 * 60 * 1000);
             this.clockSyncInterval.unref?.();
         }
@@ -204,6 +205,10 @@ class StaggEKGProWifiHandler {
                 temperatureUpdated,
                 temperatureAvailable: tempC !== null,
             };
+        }, {
+            // The kettle serializes HTTP requests, so let the first /temp
+            // read happen only after the initial setclock has finished.
+            beforeFirstPoll: initialClockSync,
         });
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)

@@ -135,3 +135,58 @@ test('a HomeKit off-base error makes temperature due on the next poll', async ()
   await Promise.resolve()
   assert.deepStrictEqual(idleTemperatureDue, [true, true])
 })
+
+test('the first poll waits for the beforeFirstPoll promise', async () => {
+  const tick = () => new Promise(resolve => process.nextTick(resolve))
+  let scheduled
+  let releaseFirstPoll
+  const firstPoll = new Promise(resolve => { releaseFirstPoll = resolve })
+  let polls = 0
+
+  startTempPolling({ debug() {} }, {
+    pollIntervalHeating: 10,
+    pollIntervalIdle: 30,
+  }, async () => {
+    polls++
+    return { isHeating: 0, temperatureUpdated: true }
+  }, {
+    now: () => 0,
+    setTimeout: (fn, delay) => { scheduled = { fn, delay } },
+    beforeFirstPoll: firstPoll,
+  })
+
+  await tick()
+  assert.strictEqual(polls, 0)
+  assert.strictEqual(scheduled, undefined)
+
+  releaseFirstPoll()
+  await tick()
+  assert.strictEqual(polls, 1)
+  assert.strictEqual(scheduled.delay, 30)
+
+  scheduled.fn()
+  await tick()
+  assert.strictEqual(polls, 2)
+})
+
+test('a rejected beforeFirstPoll promise does not stop polling', async () => {
+  const tick = () => new Promise(resolve => process.nextTick(resolve))
+  let scheduled
+  let polls = 0
+
+  startTempPolling({ debug() {} }, {
+    pollIntervalHeating: 10,
+    pollIntervalIdle: 30,
+  }, async () => {
+    polls++
+    return { isHeating: 0, temperatureUpdated: true }
+  }, {
+    now: () => 0,
+    setTimeout: (fn, delay) => { scheduled = { fn, delay } },
+    beforeFirstPoll: Promise.reject(new Error('clock sync failed')),
+  })
+
+  await tick()
+  assert.strictEqual(polls, 1)
+  assert.strictEqual(scheduled.delay, 30)
+})

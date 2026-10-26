@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.2](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.2) - 2026-10-26
+
+### Fixed
+
+- When `syncTime` is enabled, the first temperature poll now waits for the initial kettle clock sync to finish, so it no longer queues behind the `setclock` command on the kettle's serial HTTP server and triggers a one-off slow-read warning at Homebridge startup.
+
 ## [1.2.0](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.0) - 2026-10-26
 
 ### Added
