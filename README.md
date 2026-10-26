@@ -6,9 +6,24 @@ Fork of [calvinmclean/homebridge-kettle](https://github.com/calvinmclean/homebri
 
 ## Install
 
-```
-npm install -g homebridge-stagg-ekg-pro
-```
+The plugin is published to [GitHub Packages](https://github.com/tomtastic/homebridge-stagg-ekg-pro/packages).
+
+1. Create an npm token on GitHub: Settings → Developer settings → Personal access tokens. A fine-grained token scoped to this repository with **Read packages** permission works; a classic token needs the `read:packages` scope.
+2. Add an `.npmrc` next to your Homebridge `config.json` (e.g. `/homebridge/.npmrc` in the Docker image):
+
+   ```
+   registry=https://registry.npmjs.org/
+   @tomtastic:registry=https://npm.pkg.github.com/
+   //npm.pkg.github.com/:_authToken=<your npm token>
+   ```
+
+3. Install the plugin into the Homebridge user directory:
+
+   ```
+   npm install --save --omit=dev @tomtastic/homebridge-stagg-ekg-pro
+   ```
+
+   Then restart Homebridge.
 
 ## Config
 
@@ -62,3 +77,15 @@ Set `syncTime` to `true` to synchronize the kettle clock with the local time of 
 ## Homebridge UI
 
 A config schema is included — use the graphical form in Homebridge Config UI X to configure the plugin.
+
+## Releasing
+
+Releases are published to GitHub Packages automatically by the `publish` workflow, which runs the test suite and then publishes when a `v*` tag is pushed:
+
+```
+git commit -am "Bump version"        # bump "version" in package.json first
+git tag v1.1.1
+git push tomtastic main v1.1.1
+```
+
+The workflow authenticates with the built-in `GITHUB_TOKEN` (see `.github/workflows/publish.yml`), so no extra secrets are needed. Each release needs a new version — republishing an existing version fails.
