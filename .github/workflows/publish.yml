@@ -24,8 +24,25 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm pkg set name="homebridge-stagg-ekg-pro"
-          npm publish --registry https://registry.npmjs.org
+          set -o pipefail
+          if npm publish --registry https://registry.npmjs.org 2>&1 | tee publish.log; then
+            exit 0
+          fi
+          if grep -qE "EPUBLISHCONFLICT|already published|cannot publish over" publish.log; then
+            echo "npmjs: version already published, skipping"
+          else
+            exit 1
+          fi
       - name: Publish to GitHub Packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish
+        run: |
+          set -o pipefail
+          if npm publish 2>&1 | tee publish.log; then
+            exit 0
+          fi
+          if grep -qE "EPUBLISHCONFLICT|already published|cannot publish over" publish.log; then
+            echo "GitHub Packages: version already published, skipping"
+          else
+            exit 1
+          fi
