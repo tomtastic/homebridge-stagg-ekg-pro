@@ -35,7 +35,7 @@ jobs:
           if npm stage publish --registry https://registry.npmjs.org 2>&1 | tee publish.log; then
             exit 0
           fi
-          if grep -qE "EPUBLISHCONFLICT|already published|cannot publish over" publish.log; then
+          if grep -qiE "EPUBLISHCONFLICT|E409|already published|previously published" publish.log; then
             echo "npmjs: version already published, skipping"
           else
             cat publish.log
@@ -53,7 +53,7 @@ jobs:
           if npm publish 2>&1 | tee publish.log; then
             exit 0
           fi
-          if grep -qE "EPUBLISHCONFLICT|already published|cannot publish over" publish.log; then
+          if grep -qiE "EPUBLISHCONFLICT|E409|already published|previously published" publish.log; then
             echo "GitHub Packages: version already published, skipping"
           else
             cat publish.log
