@@ -46,6 +46,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          # The npmjs step renames the package to its unscoped name; GitHub
+          # Packages requires the account-scoped name, so restore it.
+          npm pkg set name="@$GITHUB_REPOSITORY_OWNER/$GITHUB_REPOSITORY"
           set -o pipefail
           if npm publish 2>&1 | tee publish.log; then
             exit 0
@@ -53,5 +56,6 @@ jobs:
           if grep -qE "EPUBLISHCONFLICT|already published|cannot publish over" publish.log; then
             echo "GitHub Packages: version already published, skipping"
           else
+            cat publish.log
             exit 1
           fi
