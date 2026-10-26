@@ -92,11 +92,26 @@ class StaggEKGProWifiHandler {
         const service = accessory.getService(Service.Thermostat)
             || accessory.addService(Service.Thermostat);
 
+        const readState = async () => {
+            try {
+                return await client.readState();
+            } catch (err) {
+                if (err instanceof StaggEKGProClient.StateUnavailableError) {
+                    // A transient /temp or CLI failure (firmware 1.2.26 serves
+                    // no state CLI output): surface a communication failure so
+                    // HomeKit keeps the last known values instead of logging a
+                    // plugin error for every read.
+                    log.info(`Kettle state unavailable, is the kettle off its base or unreachable?`);
+                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                }
+                throw err;
+            }
+        };
+
         service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
             .setProps({ validValues: [0, 1] })
             .onGet(async () => {
-                const { isHeating } = await client.readState();
-                if (isHeating === null) throw new Error('unrecognised state');
+                const { isHeating } = await readState();
                 return isHeating;
             })
             .onSet(async (value) => {
@@ -106,16 +121,18 @@ class StaggEKGProWifiHandler {
         service.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
             .setProps({ validValues: [0, 1] })
             .onGet(async () => {
-                const { isHeating } = await client.readState();
-                if (isHeating === null) throw new Error('unrecognised state');
+                const { isHeating } = await readState();
                 return isHeating;
             });
 
         service.getCharacteristic(Characteristic.TargetTemperature)
             .setProps({ minValue: minTemp, maxValue: maxTemp })
             .onGet(async () => {
-                const { targetC } = await client.readState();
-                if (targetC === null) throw new Error('could not parse target temp');
+                const { targetC } = await readState();
+                if (targetC === null) {
+                    log.info(`Kettle target temp unavailable, is the kettle off its base or unreachable?`);
+                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                }
                 return targetC;
             })
             .onSet(async (value) => {
@@ -130,7 +147,7 @@ class StaggEKGProWifiHandler {
         service.getCharacteristic(Characteristic.CurrentTemperature)
             .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
-                const { tempC } = await client.readState();
+                const { tempC } = await readState();
                 if (tempC === null) {
                     temperaturePolling?.markTemperatureUnavailable();
                     log.info('No temp data, is kettle off its base?');

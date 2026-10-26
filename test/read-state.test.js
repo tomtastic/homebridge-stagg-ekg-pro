@@ -6,6 +6,9 @@ const StaggEKGProClient = require('../lib/stagg-ekg-pro-client')
 const TEMP_JSON_OFF = '{"temp":24.86,"temp_set":93.00,"state":"S_Off","pwm":-10,"timestamp":1761500000}'
 const TEMP_JSON_HEAT = '{"temp":88.16,"temp_set":83.89,"state":"S_Heat","pwm":50,"timestamp":1761500000}'
 
+// What firmware 1.2.26 returns for any CLI command, including `state`
+const CLI_HTML_FORM = '<form action="cli" method="GET"><label for="x">CLI Command:</label><input type="text" id="cli" name="cmd"></form>'
+
 // Legacy CLI `state` output from older firmware (trimmed from the parsers.test.js fixtures)
 const STATE_OUTPUT_OFF = `
 I (991010) Cli: cmd len 5: 'state'
@@ -157,6 +160,28 @@ async function main() {
       assert.strictEqual(state.isHeating, 1)
       assert.strictEqual(state.tempC, 88.157149)
       assert.strictEqual(state.targetC, 83.888885)
+    } finally { stub.restore() }
+  })
+
+  await run('readState rejects with StateUnavailableError when the CLI serves the HTML form', async () => {
+    const client = new StaggEKGProClient('http://kettle.local')
+    const stub = stubFetch([
+      { match: '/temp', status: 500, body: 'internal error' },
+      { match: '/cli', body: CLI_HTML_FORM },
+    ])
+    try {
+      await assert.rejects(client.readState(), StaggEKGProClient.StateUnavailableError)
+    } finally { stub.restore() }
+  })
+
+  await run('readState still rejects with StateUnavailableError when /temp JSON has no state and the CLI is the 1.2.26 form', async () => {
+    const client = new StaggEKGProClient('http://kettle.local')
+    const stub = stubFetch([
+      { match: '/temp', body: '{"temp":24.86,"temp_set":93}' },
+      { match: '/cli', body: CLI_HTML_FORM },
+    ])
+    try {
+      await assert.rejects(client.readState(), StaggEKGProClient.StateUnavailableError)
     } finally { stub.restore() }
   })
 

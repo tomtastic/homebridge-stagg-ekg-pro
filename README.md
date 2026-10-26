@@ -67,7 +67,7 @@ Talks directly to the EKG Pro's built-in HTTP CLI (`/cli?cmd=...`). Requires fir
 
 Firmware 1.2.26+ no longer prints `state` output from the CLI endpoint and instead serves the kettle state as JSON at `GET /temp` (e.g. `{"temp":24.86,"temp_set":93.0,"state":"S_Off"}` with °C values and the same `S_*` state tokens). The plugin reads `/temp` first and falls back to the legacy `state` CLI text for older firmware, so both are supported. Control commands (`setstate`, `setsetting`) are unchanged.
 
-The firmware emits a bare `nan` for `temp` (invalid JSON) when the sensor has no reading, for example while the kettle is powered off. The plugin sanitizes this and keeps reporting the last known temperature; the kettle state and target remain available in that situation.
+The firmware emits a bare `nan` for `temp` (invalid JSON) when the sensor has no reading, for example while the kettle is off its base. The plugin sanitizes this and keeps reporting the last known temperature; the kettle state and target remain available in that situation. If the kettle state cannot be read at all (e.g. a transient `/temp` failure on firmware 1.2.26, where the legacy `state` CLI no longer prints anything), the plugin reports a HomeKit communication failure so the last known values are kept rather than logging a plugin error.
 
 Set `syncTime` to `true` to synchronize the kettle clock with the local time of the system running Homebridge during module initialization and once every 24 hours. The plugin uses the kettle's `setclock` CLI command.
 
