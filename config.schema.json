@@ -2,7 +2,7 @@
   "pluginAlias": "StaggKettle",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Homebridge plugin for Fellow Stagg kettles. See the [README](https://github.com/Willmac16/homebridge-kettle#readme) for setup instructions.",
+  "headerDisplay": "Homebridge plugin for the Fellow Stagg EKG Pro (Wi-Fi). See the [README](https://github.com/tomtastic/homebridge-stagg-ekg-pro#readme) for setup instructions.",
   "schema": {
     "type": "object",
     "properties": {
@@ -25,25 +25,16 @@
               "default": "Kettle",
               "minLength": 1
             },
-            "connection": {
-              "type": "string",
-              "title": "Connection Type",
-              "oneOf": [
-                { "title": "Wi-Fi CLI (EKG Pro)", "enum": ["wifi"] },
-                { "title": "BLE bridge (EKG+ / EKG Pro)", "enum": ["ble"] }
-              ],
-              "default": "wifi"
-            },
             "url": {
               "type": "string",
               "title": "Base URL",
-              "description": "Wi-Fi: base URL of the kettle (no trailing slash). BLE: base URL of the bridge.",
+              "description": "Base URL of the kettle (no trailing slash).",
               "default": "http://192.168.1.32",
               "pattern": "^https?://"
             },
             "minTemp": {
               "type": "number",
-              "title": "Minimum Temperature (°C)",
+              "title": "Minimum Temperature (\u00b0C)",
               "description": "Lowest target temperature exposed to HomeKit.",
               "default": 40,
               "minimum": 0,
@@ -51,7 +42,7 @@
             },
             "maxTemp": {
               "type": "number",
-              "title": "Maximum Temperature (°C)",
+              "title": "Maximum Temperature (\u00b0C)",
               "description": "Highest target temperature exposed to HomeKit.",
               "default": 100,
               "minimum": 0,
@@ -74,11 +65,14 @@
             "syncTime": {
               "type": "boolean",
               "title": "Sync Kettle Clock",
-              "description": "Set the Wi-Fi kettle clock to the host system's local time when Homebridge starts and once per day.",
+              "description": "Set the kettle clock to the host system's local time when Homebridge starts and once per day.",
               "default": false
             }
           },
-          "required": ["name", "connection", "url"]
+          "required": [
+            "name",
+            "url"
+          ]
         }
       }
     }
