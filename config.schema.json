@@ -58,7 +58,7 @@
             "pollIntervalIdle": {
               "type": "number",
               "title": "Idle Temperature Interval (ms)",
-              "description": "How often to publish temperature while idle. State is still checked at the heating interval.",
+              "description": "How often to check kettle state and publish temperature while idle (not heating).",
               "default": 1800000,
               "minimum": 1000
             },

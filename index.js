@@ -105,15 +105,13 @@ class StaggEKGProWifiHandler {
             try {
                 lastState = await client.readState();
             } catch (err) {
-                if (err instanceof StaggEKGProClient.StateUnavailableError) {
-                    // A transient /temp or CLI failure (firmware 1.2.26 serves
-                    // no state CLI output): surface a communication failure so
-                    // HomeKit keeps the last known values instead of logging a
-                    // plugin error for every read.
-                    log.info(`Kettle state unavailable, is the kettle off its base or unreachable?`);
-                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
-                }
-                throw err;
+                // Surface a communication failure so HomeKit keeps the last
+                // known values instead of logging a plugin error for every
+                // read. Transient /temp failures are expected whenever the
+                // kettle is off its base, so keep those at info level.
+                const logLevel = err instanceof StaggEKGProClient.StateUnavailableError ? 'info' : 'warn';
+                log[logLevel](`Kettle state unavailable, is the kettle off its base or unreachable? ${err.message}`);
+                throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
             }
             return lastState;
         };
@@ -125,7 +123,12 @@ class StaggEKGProWifiHandler {
                 return isHeating;
             })
             .onSet(async (value) => {
-                await client.commandAsync(`setstate ${client.stateForHomeKit(value)}`);
+                try {
+                    await client.commandAsync(`setstate ${client.stateForHomeKit(value)}`);
+                } catch (err) {
+                    log.warn(`Failed to set kettle state: ${err.message}`);
+                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                }
             });
 
         service.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
@@ -146,11 +149,16 @@ class StaggEKGProWifiHandler {
                 return targetC;
             })
             .onSet(async (value) => {
-                const targetF = Math.round(client.cToF(value));
-                await Promise.all([
-                    client.commandAsync(`setsetting settempr ${targetF}`),
-                    client.commandAsync(`setstate S_Heat`),
-                ]);
+                try {
+                    const targetF = Math.round(client.cToF(value));
+                    await Promise.all([
+                        client.commandAsync(`setsetting settempr ${targetF}`),
+                        client.commandAsync(`setstate S_Heat`),
+                    ]);
+                } catch (err) {
+                    log.warn(`Failed to set kettle temperature: ${err.message}`);
+                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+                }
             });
 
         let temperaturePolling;
