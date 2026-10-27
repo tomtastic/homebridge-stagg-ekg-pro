@@ -2,6 +2,9 @@
 
 <img width="100" height="100" alt="stagg_ekg_pro_icon" src="https://github.com/user-attachments/assets/ada8283a-e9b8-42fd-a9d5-e59136745c22" />
 
+[![npm version](https://badgen.net/npm/v/homebridge-stagg-ekg-pro)](https://www.npmjs.com/package/homebridge-stagg-ekg-pro)
+[![npm downloads](https://badgen.net/npm/dt/homebridge-stagg-ekg-pro)](https://www.npmjs.com/package/homebridge-stagg-ekg-pro)
+
 [Pending Verification by Homebridge]
 ___
 
