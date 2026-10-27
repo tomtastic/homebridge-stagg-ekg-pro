@@ -1,7 +1,8 @@
 'use strict'
 
+const { version } = require('./package.json')
 const StaggEKGProClient = require('./lib/stagg-ekg-pro-client')
-const { startTempPolling } = require('./lib/temperature-polling')
+const { getPollIntervals, startTempPolling } = require('./lib/temperature-polling')
 const { TargetTemperatureEcho } = require('./lib/target-temperature-echo')
 
 module.exports = (api) => {
@@ -102,6 +103,11 @@ class StaggEKGProWifiHandler {
         // live read only happens before the first successful poll.
         let lastState = null;
         let lastTempC = null;
+        let temperaturePolling;
+        // What this handler last published for the heating state. HAP's Service has
+        // no synchronous getter — Service#getValue is absent from the Homebridge 2.x
+        // HAP — so the previous value is tracked here instead of read back.
+        let publishedHeatingState = null;
 
         // The kettle stores its setpoint in whole °F, so a °C target set from
         // HomeKit comes back quantised (93 °C is stored as 199 °F and reported
@@ -109,6 +115,36 @@ class StaggEKGProWifiHandler {
         // confirms that same setpoint, and gets out of the way as soon as the
         // reported target moves somewhere else.
         const targetEcho = new TargetTemperatureEcho(client);
+
+        // Publish to HomeKit without letting a rejected update abort the poll. The
+        // poller needs the poll's result to choose the next interval, so a failing
+        // characteristic is logged (once per streak) instead of thrown, which would
+        // silently look like a kettle that never stops asking for fast polls.
+        let publishFailures = 0;
+        const publish = (name, characteristic, value) => {
+            try {
+                service.updateCharacteristic(characteristic, value);
+                publishFailures = 0;
+            } catch (err) {
+                if (publishFailures === 0) {
+                    log.warn(`Could not publish ${name} to HomeKit: ${err.message}`);
+                } else {
+                    log.debug(`Could not publish ${name} to HomeKit: ${err.message}`);
+                }
+                publishFailures += 1;
+            }
+        };
+
+        // Push a heating state we already know: the kettle reported it, or HomeKit
+        // just commanded it. Both characteristics move together, matching what the
+        // read handlers return, and the cached state is patched to agree, so the
+        // tile flips the moment the user acts instead of at the next /temp read.
+        const publishHeatingState = (value) => {
+            publish('CurrentHeatingCoolingState', Characteristic.CurrentHeatingCoolingState, value);
+            publish('TargetHeatingCoolingState', Characteristic.TargetHeatingCoolingState, value);
+            publishedHeatingState = value;
+            if (lastState) lastState = { ...lastState, isHeating: value };
+        };
 
         const readState = async () => {
             if (lastState) return lastState;
@@ -135,6 +171,18 @@ class StaggEKGProWifiHandler {
             .onSet(async (value) => {
                 try {
                     await client.commandAsync(`setstate ${client.stateForHomeKit(value)}`);
+                    // Report the commanded state straight away, then read once at
+                    // the heating cadence to confirm the kettle obeyed. Without
+                    // that read, a kettle that was resting at the idle interval
+                    // would leave HomeKit showing the previous state until the
+                    // interval elapsed, which is what made a switched-off kettle
+                    // look like it was still heating.
+                    publishHeatingState(value);
+                    if (value === 1) {
+                        temperaturePolling?.markHeating();
+                    } else {
+                        temperaturePolling?.refreshSoon();
+                    }
                 } catch (err) {
                     log.warn(`Failed to set kettle state: ${err.message}`);
                     throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
@@ -167,13 +215,14 @@ class StaggEKGProWifiHandler {
                     ]);
                     // Only echo a target the kettle actually accepted.
                     targetEcho.command(value);
+                    publishHeatingState(1);
+                    temperaturePolling?.markHeating();
                 } catch (err) {
                     log.warn(`Failed to set kettle temperature: ${err.message}`);
                     throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
                 }
             });
 
-        let temperaturePolling;
         service.getCharacteristic(Characteristic.CurrentTemperature)
             .setProps({ minValue: 0, maxValue: 100 })
             .onGet(async () => {
@@ -196,23 +245,19 @@ class StaggEKGProWifiHandler {
             lastState = state;
             if (tempC !== null) lastTempC = tempC;
             let temperatureUpdated = false;
-            if (isHeating === 1 || idleTemperatureDue) {
-                if (tempC !== null) {
-                    service.updateCharacteristic(Characteristic.CurrentTemperature, tempC);
-                    temperatureUpdated = true;
-                }
+            if (tempC !== null && (isHeating === 1 || idleTemperatureDue)) {
+                publish('CurrentTemperature', Characteristic.CurrentTemperature, tempC);
+                temperatureUpdated = true;
             }
-            if (isHeating !== null && isHeating !== service.getValue(Characteristic.CurrentHeatingCoolingState)) {
-                // The kettle changed state (started on the device, finished
-                // boiling, or was powered off). Push both states so HomeKit
-                // clients do not keep showing the stale heating state; the
-                // target mirrors the current state, matching what the read
-                // handlers return.
-                service.updateCharacteristic(Characteristic.CurrentHeatingCoolingState, isHeating);
-                service.updateCharacteristic(Characteristic.TargetHeatingCoolingState, isHeating);
+            if (isHeating !== null && isHeating !== publishedHeatingState) {
+                // The kettle changed state on its own: started at the dial,
+                // finished boiling, moved into or out of a hold, or powered off.
+                publishHeatingState(isHeating);
             }
             return {
-                isHeating,
+                // The HomeKit-visible heating state, S_Hold included: if the tile
+                // reads heating, the loop keeps watching at the heating cadence.
+                heating: isHeating === null ? null : isHeating === 1,
                 temperatureUpdated,
                 temperatureAvailable: tempC !== null,
             };
@@ -221,6 +266,13 @@ class StaggEKGProWifiHandler {
             // read happen only after the initial setclock has finished.
             beforeFirstPoll: initialClockSync,
         });
+
+        // Say what this instance is doing: the version and the resolved cadence
+        // make a wrong or stale deployment obvious from the Homebridge log
+        // instead of a packet capture.
+        const { heating, idle } = getPollIntervals(config);
+        log.info(`${config.name || 'Kettle'}: homebridge-stagg-ekg-pro v${version}, reading /temp every `
+            + `${heating}ms while heating or holding temperature and every ${idle}ms otherwise.`);
 
         service.getCharacteristic(Characteristic.TemperatureDisplayUnits)
             .onGet(async () => 0)

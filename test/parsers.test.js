@@ -2,7 +2,7 @@
 
 const assert = require('assert')
 const StaggEKGProClient = require('../lib/stagg-ekg-pro-client')
-const { test, banner } = require('./_harness')
+const { test } = require('node:test')
 
 const STATE_OUTPUT = `
             <form action="cli" method="GET">
@@ -165,7 +165,6 @@ ble conn=0
 I (2450950) Cli: command 'state' ret 0
 `
 
-banner('parsers.test.js')
 const client = new StaggEKGProClient('http://kettle.local')
 
 test('parse state from state output', () => {
@@ -192,8 +191,10 @@ test('parse state from calibration state output', () => {
   assert.strictEqual(client.parseState(STATE_OUTPUT_CALIB), 1)
 })
 
+// S_Calib_finish means calibration has run to completion, so the heater is off
+// and HomeKit should not show the kettle as heating.
 test('parse state from calibration finish state output', () => {
-  assert.strictEqual(client.parseState(STATE_OUTPUT_CALIB_FINISH), 1)
+  assert.strictEqual(client.parseState(STATE_OUTPUT_CALIB_FINISH), 0)
 })
 
 test('parse temp from state output', () => {
@@ -232,8 +233,6 @@ test('parse first number fallback', () => {
   assert.strictEqual(client._parseFirstNumber('x=-12.5 y=3'), -12.5)
 })
 
-banner('edge cases')
-
 // parseTargetTemp returns null when neither temprT nor temps is present
 test('parseTargetTemp returns null when no target fields present', () => {
   const body = 'tempr=75.5 C\nmode=S_Heat'
@@ -251,8 +250,6 @@ test('stateForHomeKit: value=true (boolean) maps to S_Off not S_Heat', () => {
   assert.strictEqual(client.stateForHomeKit(true), 'S_Off')
   assert.strictEqual(client.stateForHomeKit(1), 'S_Heat')
 })
-
-banner('parseTempJson (firmware 1.2.26 /temp endpoint)')
 
 const TEMP_JSON_OFF = '{"temp":24.86,"temp_set":93.00,"state":"S_Off","pwm":-10,"timestamp":1761500000}'
 const TEMP_JSON_HEAT = '{"temp":88.16,"temp_set":83.89,"state":"S_Heat","pwm":50,"timestamp":1761500000}'
@@ -304,8 +301,6 @@ test('parseTempJson returns null for malformed JSON, non-objects, or missing sta
   assert.strictEqual(client.parseTempJson(''), null)
 })
 
-banner('constructor URL derivation')
-
 test('constructor derives /temp from a bare base URL', () => {
   const c = new StaggEKGProClient('http://kettle.local')
   assert.strictEqual(c.cliUrl, 'http://kettle.local/cli')
@@ -317,5 +312,58 @@ test('constructor derives /temp when the config URL points at /cli', () => {
     const c = new StaggEKGProClient(url)
     assert.strictEqual(c.cliUrl, 'http://kettle.local/cli')
     assert.strictEqual(c.tempUrl, 'http://kettle.local/temp')
+  }
+})
+
+// The kettle reports one of the S_ names recovered from the firmware image.
+// Anything with the heater running or keeping the water hot reads as heating to
+// HomeKit, and that same classification sets the poll cadence. Everything else
+// — including S_Standby, the ordinary "powered off, sitting on its base" state —
+// reads as at rest. Nothing here may depend on a substring match: S_HeatOff is
+// not heating, and S_Offline is not S_Off.
+const HEATING = ['S_Heat', 'S_StartupToTempr', 'S_Hold', 'S_Calib_Started']
+const AT_REST = [
+  'S_Off', 'S_OnOff', 'S_Standby', 'S_HeatOff', 'S_Finished', 'S_TIMEOUT',
+  'S_NoWater', 'S_FAIL', 'S_MenuExitToTempr', 'S_Temperature', 'S_Time',
+  'S_Set_clock', 'S_clocK_menu', 'S_StartupMenu', 'S_StartupToMenu',
+  'S_Check_Wireless_setup', 'S_OTA', 'S_OTA_Start', 'S_OTA_Abort',
+  'S_Calib_Halted', 'S_Calib_aborted', 'S_Calib_finish',
+]
+
+test('every heating state reports HomeKit heating', () => {
+  for (const state of HEATING) {
+    assert.strictEqual(client.parseState(`mode=${state}`), 1, state)
+  }
+})
+
+test('every resting state reports HomeKit off', () => {
+  for (const state of AT_REST) {
+    assert.strictEqual(client.parseState(`mode=${state}`), 0, state)
+  }
+})
+
+// The poll cadence is driven by parseState itself: whatever HomeKit shows as
+// heating is watched at the heating interval, so a kettle that has settled into
+// a hold window still notices being switched off. For that to be predictable the
+// two tables must stay a partition of the firmware's state names.
+test('the heating and resting tables do not overlap', () => {
+  for (const state of HEATING) {
+    assert.ok(!AT_REST.includes(state), `${state} is classified as both heating and at rest`)
+  }
+})
+
+test('parseStateName strips the +menu suffix the CLI appends', () => {
+  assert.strictEqual(client.parseStateName('mode=S_Hold+menu'), 'S_Hold')
+  assert.strictEqual(client.parseStateName('mode=S_Calib_finish+menu'), 'S_Calib_finish')
+  assert.strictEqual(client.parseStateName('mode=S_Off'), 'S_Off')
+})
+
+test('S_HeatOff is not mistaken for a heating state', () => {
+  assert.strictEqual(client.parseState('mode=S_HeatOff'), 0)
+})
+
+test('a state outside the firmware table stays unknown', () => {
+  for (const body of ['mode=S_Offline', 'S_Mystery', 'no state here', '']) {
+    assert.strictEqual(client.parseState(body), null, body)
   }
 })

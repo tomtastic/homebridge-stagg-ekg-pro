@@ -2,9 +2,8 @@
 
 const assert = require('assert')
 const StaggEKGProClient = require('../lib/stagg-ekg-pro-client')
-const { test, banner } = require('./_harness')
+const { test } = require('node:test')
 
-banner('cli.test.js')
 const client = new StaggEKGProClient('http://kettle.local')
 
 test('encode: state', () => {
@@ -23,8 +22,6 @@ test('encode: ss S_StartupToTempr', () => {
   assert.strictEqual(client._encode('ss S_StartupToTempr'), 'ss+S_StartupToTempr')
 })
 
-banner('edge cases')
-
 // _encode now uses encodeURIComponent per token
 test('encode: ampersand is percent-encoded', () => {
   assert.strictEqual(client._encode('cmd&extra=bad'), 'cmd%26extra%3Dbad')
@@ -38,8 +35,6 @@ test('clock command uses the system local time', () => {
     const date = new Date(2026, 7, 14, 9, 5, 3)
     assert.strictEqual(client.clockCommand(date), 'setclock 9 5 3')
 })
-
-banner('time zone aware clock sync')
 
 // One instant, two zones: 11:00:45 UTC is 12:00:45 in London (BST) and
 // 07:00:45 in New York (EDT).

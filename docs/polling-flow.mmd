@@ -1,0 +1,39 @@
+flowchart TD
+    START(["Homebridge starts: setclock, then the first tick"])
+
+    TICK{"tick: GET /temp<br/>5 s fetch timeout,<br/>legacy state CLI as the fallback"}
+
+    HEATING["HEATING<br/>S_Heat, S_StartupToTempr, S_Calib_Started<br/>HomeKit: Heating to the target<br/>next tick: pollIntervalHeating (10 s)"]
+
+    HOLDING["HOLDING<br/>S_Hold, keep-warm at the setpoint<br/>HomeKit: Heating to the target<br/>next tick: pollIntervalHeating (10 s)"]
+
+    RESTING["RESTING<br/>S_Off, S_Standby, S_OnOff, S_HeatOff, S_Finished,<br/>S_TIMEOUT, S_NoWater, S_FAIL, the menu and clock states,<br/>the OTA states, calib halted/aborted/finish<br/>HomeKit: Off<br/>next tick: pollIntervalIdle (1800 s default)"]
+
+    UNKNOWN["UNKNOWN<br/>no reply, HTTP error, malformed JSON,<br/>or an unrecognised S_* name<br/>HomeKit: keeps the last known value<br/>next tick: pollIntervalHeating (10 s)<br/>budget: 6 reads"]
+
+    START --> TICK
+
+    TICK -->|"heater running"| HEATING
+    TICK -->|"S_Hold"| HOLDING
+    TICK -->|"at rest"| RESTING
+    TICK -->|"unusable read"| UNKNOWN
+
+    HEATING -->|"water reaches the setpoint"| HOLDING
+    HEATING -->|"powered off at the kettle"| RESTING
+    HEATING -->|"reads stop answering"| UNKNOWN
+    HOLDING -->|"hold window ends"| RESTING
+    HOLDING -->|"switched off at the kettle"| RESTING
+    HOLDING -->|"reads stop answering"| UNKNOWN
+    RESTING -->|"started at the kettle"| HEATING
+    UNKNOWN -->|"1st-6th retry"| UNKNOWN
+    UNKNOWN -->|"7th unusable read: budget spent"| RESTING
+
+    ON{{"HomeKit: on"}}
+    TARGET{{"HomeKit: set a target"}}
+    OFF{{"HomeKit: off"}}
+    FAILED{{"command failed"}}
+
+    ON -->|"setstate S_Heat; publish Current=1/Target=1 at once"| HEATING
+    TARGET -->|"settempr + setstate S_Heat; echo the °C;<br/>publish Current=1/Target=1 at once"| HEATING
+    OFF -->|"setstate S_Off; publish Current=0/Target=0 at once;<br/>one confirmation tick in 10 s"| RESTING
+    FAILED -->|"SERVICE_COMMUNICATION_FAILURE;<br/>the tile reverts, cadence unchanged"| RESTING

@@ -1,6 +1,6 @@
 {
   "name": "@tomtastic/homebridge-stagg-ekg-pro",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Homebridge plugin for the Fellow Stagg EKG Pro (Wi-Fi HTTP CLI)",
   "author": "Will MacCormack",
   "contributors": [
@@ -12,6 +12,7 @@
   "files": [
     "index.js",
     "lib/",
+    "docs/",
     "config.schema.json",
     "CHANGELOG.md"
   ],
@@ -39,7 +40,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
-    "test": "node test/parsers.test.js && node test/cli.test.js && node test/temperature-polling.test.js && node test/read-state.test.js && node test/target-temperature-echo.test.js"
+    "test": "node --test test/*.test.js"
   },
   "homebridge": {
     "pluginAlias": "StaggKettle",

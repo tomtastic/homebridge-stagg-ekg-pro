@@ -1,10 +1,15 @@
 'use strict'
 
 const assert = require('assert')
+const { test } = require('node:test')
 const StaggEKGProClient = require('../lib/stagg-ekg-pro-client')
 
 const TEMP_JSON_OFF = '{"temp":24.86,"temp_set":93.00,"state":"S_Off","pwm":-10,"timestamp":1761500000}'
 const TEMP_JSON_HEAT = '{"temp":88.16,"temp_set":83.89,"state":"S_Heat","pwm":50,"timestamp":1761500000}'
+// A kettle switched off but still on its base: at rest, so nothing may hold the
+// poll loop at the heating cadence.
+const TEMP_JSON_STANDBY = '{"temp":30.11,"temp_set":91.11,"state":"S_Standby","pwm":-10,"timestamp":1185211212}'
+const TEMP_JSON_HOLD = '{"temp":91.67,"temp_set":91.11,"state":"S_Hold","pwm":-10,"timestamp":1185211212}'
 
 // What firmware 1.2.26 returns for any CLI command, including `state`
 const CLI_HTML_FORM = '<form action="cli" method="GET"><label for="x">CLI Command:</label><input type="text" id="cli" name="cmd"></form>'
@@ -51,156 +56,169 @@ function stubFetch(routes) {
   }
 }
 
-let failures = 0
-async function run(name, fn) {
+test('readState returns /temp JSON directly and never hits /cli', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([{ match: '/temp', body: TEMP_JSON_OFF }])
   try {
-    await fn()
-    console.log(`\x1b[32mok\x1b[0m - ${name}`)
-  } catch (err) {
-    failures += 1
-    console.error(`\x1b[31mnot ok\x1b[0m - ${name}`)
-    console.error(err)
-  }
-}
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 0)
+    assert.strictEqual(state.tempC, 24.86)
+    assert.strictEqual(state.targetC, 93)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
+  } finally { stub.restore() }
+})
 
-async function main() {
-  console.log('\n# read-state.test.js')
+test('readState maps /temp S_Heat to isHeating 1', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([{ match: '/temp', body: TEMP_JSON_HEAT }])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 1)
+    assert.strictEqual(state.tempC, 88.16)
+    assert.strictEqual(state.targetC, 83.89)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
+  } finally { stub.restore() }
+})
 
-  await run('readState returns /temp JSON directly and never hits /cli', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([{ match: '/temp', body: TEMP_JSON_OFF }])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 0)
-      assert.strictEqual(state.tempC, 24.86)
-      assert.strictEqual(state.targetC, 93)
-      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
-    } finally { stub.restore() }
-  })
+test('readState tolerates the bare nan temp from /temp without hitting the CLI', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', body: '{"temp":nan,"temp_set":33.89,"state":"S_Off","pwm":-10,"timestamp":1761500000}' },
+    { match: '/cli', body: STATE_OUTPUT_OFF },
+  ])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 0)
+    assert.strictEqual(state.tempC, null)
+    assert.strictEqual(state.targetC, 33.89)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
+  } finally { stub.restore() }
+})
 
-  await run('readState maps /temp S_Heat to isHeating 1', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([{ match: '/temp', body: TEMP_JSON_HEAT }])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 1)
-      assert.strictEqual(state.tempC, 88.16)
-      assert.strictEqual(state.targetC, 83.89)
-      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
-    } finally { stub.restore() }
-  })
+test('readState reports S_Standby as at rest without hitting the CLI', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([{ match: '/temp', body: TEMP_JSON_STANDBY }])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 0)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
+  } finally { stub.restore() }
+})
 
-  await run('readState tolerates the bare nan temp from /temp without hitting the CLI', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', body: '{"temp":nan,"temp_set":33.89,"state":"S_Off","pwm":-10,"timestamp":1761500000}' },
-      { match: '/cli', body: STATE_OUTPUT_OFF },
-    ])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 0)
-      assert.strictEqual(state.tempC, null)
-      assert.strictEqual(state.targetC, 33.89)
-      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp'])
-    } finally { stub.restore() }
-  })
+// Hold keeps water at the setpoint, so HomeKit and the poll cadence both call
+// it heating: that is the state a boiled kettle sits in, and a switch-off has
+// to be noticed there rather than an idle interval later.
+test('readState reports a holding kettle as heating', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([{ match: '/temp', body: TEMP_JSON_HOLD }])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 1)
+  } finally { stub.restore() }
+})
 
-  await run('readState falls back to the CLI state command when /temp 404s', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', status: 404, body: 'not found' },
-      { match: '/cli', body: STATE_OUTPUT_OFF },
-    ])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 0)
-      assert.strictEqual(state.tempC, 50.491463)
-      assert.strictEqual(state.targetC, 96.111115)
-      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp', 'http://kettle.local/cli?cmd=state'])
-    } finally { stub.restore() }
-  })
+test('readState carries isHeating through the legacy CLI fallback', async () => {
+  const heating = new StaggEKGProClient('http://kettle.local')
+  let stub = stubFetch([{ match: '/temp', status: 404, body: '' }, { match: '/cli', body: STATE_OUTPUT_HEAT }])
+  try {
+    assert.strictEqual((await heating.readState()).isHeating, 1)
+  } finally { stub.restore() }
 
-  await run('readState falls back to the CLI when /temp serves the HTML form', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', body: '<html><form action="cli" method="GET"></form></html>' },
-      { match: '/cli', body: STATE_OUTPUT_HEAT },
-    ])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 1)
-      assert.strictEqual(state.tempC, 88.157149)
-      assert.strictEqual(state.targetC, 83.888885)
-      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp', 'http://kettle.local/cli?cmd=state'])
-    } finally { stub.restore() }
-  })
+  const atRest = new StaggEKGProClient('http://kettle.local')
+  stub = stubFetch([{ match: '/temp', status: 404, body: '' }, { match: '/cli', body: STATE_OUTPUT_OFF }])
+  try {
+    assert.strictEqual((await atRest.readState()).isHeating, 0)
+  } finally { stub.restore() }
+})
 
-  await run('readState falls back to the CLI when /temp JSON has no state field', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', body: '{"temp":24.86,"temp_set":93}' },
-      { match: '/cli', body: STATE_OUTPUT_OFF },
-    ])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 0)
-      assert.strictEqual(state.tempC, 50.491463)
-      assert.strictEqual(state.targetC, 96.111115)
-    } finally { stub.restore() }
-  })
+test('readState falls back to the CLI state command when /temp 404s', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', status: 404, body: 'not found' },
+    { match: '/cli', body: STATE_OUTPUT_OFF },
+  ])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 0)
+    assert.strictEqual(state.tempC, 50.491463)
+    assert.strictEqual(state.targetC, 96.111115)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp', 'http://kettle.local/cli?cmd=state'])
+  } finally { stub.restore() }
+})
 
-  await run('readState falls back to the CLI when the /temp fetch rejects', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', error: '/temp network down' },
-      { match: '/cli', body: STATE_OUTPUT_HEAT },
-    ])
-    try {
-      const state = await client.readState()
-      assert.strictEqual(state.isHeating, 1)
-      assert.strictEqual(state.tempC, 88.157149)
-      assert.strictEqual(state.targetC, 83.888885)
-    } finally { stub.restore() }
-  })
+test('readState falls back to the CLI when /temp serves the HTML form', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', body: '<html><form action="cli" method="GET"></form></html>' },
+    { match: '/cli', body: STATE_OUTPUT_HEAT },
+  ])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 1)
+    assert.strictEqual(state.tempC, 88.157149)
+    assert.strictEqual(state.targetC, 83.888885)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp', 'http://kettle.local/cli?cmd=state'])
+  } finally { stub.restore() }
+})
 
-  await run('readState rejects with StateUnavailableError when the CLI serves the HTML form', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', status: 500, body: 'internal error' },
-      { match: '/cli', body: CLI_HTML_FORM },
-    ])
-    try {
-      await assert.rejects(client.readState(), StaggEKGProClient.StateUnavailableError)
-    } finally { stub.restore() }
-  })
+test('readState falls back to the CLI when /temp JSON has no state field', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', body: '{"temp":24.86,"temp_set":93}' },
+    { match: '/cli', body: STATE_OUTPUT_OFF },
+  ])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 0)
+    assert.strictEqual(state.tempC, 50.491463)
+    assert.strictEqual(state.targetC, 96.111115)
+  } finally { stub.restore() }
+})
 
-  await run('readState still rejects with StateUnavailableError when /temp JSON has no state and the CLI is the 1.2.26 form', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', body: '{"temp":24.86,"temp_set":93}' },
-      { match: '/cli', body: CLI_HTML_FORM },
-    ])
-    try {
-      await assert.rejects(client.readState(), StaggEKGProClient.StateUnavailableError)
-    } finally { stub.restore() }
-  })
+test('readState falls back to the CLI when the /temp fetch rejects', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', error: '/temp network down' },
+    { match: '/cli', body: STATE_OUTPUT_HEAT },
+  ])
+  try {
+    const state = await client.readState()
+    assert.strictEqual(state.isHeating, 1)
+    assert.strictEqual(state.tempC, 88.157149)
+    assert.strictEqual(state.targetC, 83.888885)
+  } finally { stub.restore() }
+})
 
-  await run('readState rejects when both /temp and the CLI fetch fail', async () => {
-    const client = new StaggEKGProClient('http://kettle.local')
-    const stub = stubFetch([
-      { match: '/temp', error: '/temp network down' },
-      { match: '/cli', error: 'cli network down' },
-    ])
-    try {
-      await assert.rejects(client.readState(), /cli network down/)
-      assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp', 'http://kettle.local/cli?cmd=state'])
-    } finally { stub.restore() }
-  })
-}
+test('readState rejects with StateUnavailableError when the CLI serves the HTML form', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', status: 500, body: 'internal error' },
+    { match: '/cli', body: CLI_HTML_FORM },
+  ])
+  try {
+    await assert.rejects(client.readState(), StaggEKGProClient.StateUnavailableError)
+  } finally { stub.restore() }
+})
 
-main().then(() => {
-  if (failures > 0) {
-    console.error(`\n${failures} test(s) failed`)
-    process.exit(1)
-  }
+test('readState still rejects with StateUnavailableError when /temp JSON has no state and the CLI is the 1.2.26 form', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', body: '{"temp":24.86,"temp_set":93}' },
+    { match: '/cli', body: CLI_HTML_FORM },
+  ])
+  try {
+    await assert.rejects(client.readState(), StaggEKGProClient.StateUnavailableError)
+  } finally { stub.restore() }
+})
+
+test('readState rejects when both /temp and the CLI fetch fail', async () => {
+  const client = new StaggEKGProClient('http://kettle.local')
+  const stub = stubFetch([
+    { match: '/temp', error: '/temp network down' },
+    { match: '/cli', error: 'cli network down' },
+  ])
+  try {
+    await assert.rejects(client.readState(), /cli network down/)
+    assert.deepStrictEqual(stub.calls, ['http://kettle.local/temp', 'http://kettle.local/cli?cmd=state'])
+  } finally { stub.restore() }
 })

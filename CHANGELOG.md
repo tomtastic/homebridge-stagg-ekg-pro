@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.2.4](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.4) - 2026-10-27
+
+### Fixed
+
+- An idle kettle is no longer polled at the heating cadence forever. `Service#getValue` does not exist in the HAP implementation bundled with Homebridge 2.x, so every temperature poll threw `TypeError: service.getValue is not a function` immediately *after* the `/temp` read succeeded. The error was logged only at debug level, and the poll loop fell back to `pollIntervalHeating` — which is why a switched-off kettle was seen hitting `/temp` every 10 seconds on the network. The heating state last published to HomeKit is now tracked by the plugin instead of read back from the service.
+- A poll that fails after a successful read is logged as a warning (once per streak of failures) instead of only at debug level, so a loop stuck at the fast cadence is visible in the Homebridge log. A rejected HomeKit publish can no longer abort the rest of a poll.
+- The kettle's resting states are now recognised, above all `S_Standby` — what the kettle reports while sitting switched off on its base. They were previously "unknown", which kept the fast cadence alive. `S_Off`, `S_HeatOff`, `S_Finished`, `S_TIMEOUT`, `S_NoWater`, `S_FAIL`, the menu/clock states, the OTA states and the calibration outcomes are all covered, together with the firmware's `S_` string table.
+- A kettle that cannot be read no longer polls fast indefinitely. Unusable reads (unreachable, off its base, or a state this plugin does not know) are retried at `pollIntervalHeating` six times and then rest at `pollIntervalIdle`. The retry budget is now evaluated before the last known heating state, so a kettle that was heating and then dropped off the network also stops polling fast instead of holding the fast cadence on a state it reported minutes ago.
+- Switching the kettle off from HomeKit no longer leaves the tile showing *Heating to 91 °F*. `TargetHeatingCoolingState` writes did not publish anything, so the tile kept the previous value, and if the loop happened to be resting it was not refreshed until the whole idle interval had passed. The commanded state is now published as soon as the kettle accepts it, and one confirmation read follows at `pollIntervalHeating`.
+
+### Changed
+
+- The poll cadence follows the HomeKit-visible heating state rather than the heater alone, so `S_Hold` (keep-warm) is polled at `pollIntervalHeating` like `S_Heat`. HomeKit shows a holding kettle as *heating*, and a kettle that has just finished boiling is the one you are most likely to switch off; resting it at the idle interval meant that switch was invisible for up to 15 minutes.
+- `S_Calib_finish` is now reported as not heating — calibration has finished by then.
+- Switching the kettle on, or setting a setpoint, from HomeKit now publishes *Heating* immediately and switches polling to `pollIntervalHeating`, so the state change and the rising temperature are visible in seconds rather than at the end of the idle interval. The fast cadence holds for up to 30 seconds while the kettle leaves `S_Off`/`S_Standby`, then follows whatever the kettle reports.
+
+### Added
+
+- Each kettle logs its plugin version and resolved polling cadence at startup, e.g. `Kettle: homebridge-stagg-ekg-pro v1.2.4, reading /temp every 10000ms while heating or holding temperature and every 900000ms otherwise.` A stale deployment or an unexpected interval is now visible in the Homebridge log rather than only in a packet capture.
+- Accessory-level tests that boot the platform against an emulated Homebridge 2.x HAP (no `Service#getValue`), covering cadence, cached reads, publish failures, bounded retries, keep-warm cadence and the immediate publish plus confirmation read behind a HomeKit switch-off.
+- `docs/polling-flow.mmd` and a README section documenting the poll loop as a state machine — `HEATING`/`HOLDING`/`RESTING`/`UNKNOWN`, the transitions between them, the HomeKit command shortcuts, and the timeout applied at each step.
+- README section *Measured against the diagram*, recording the cadence measured on the wire with a real kettle: 30 consecutive fast reads at 10.1-10.4 s across the `S_Heat` ramp and the whole `S_Hold` window, one confirmation read 7.4 s after a HomeKit switch-off, and the next `/temp` exactly 900.11 s after the tick that reported `S_Off`.
+
+### Removed
+
+- `test/_harness.js` and the inline runner in `test/read-state.test.js`. Every suite now runs on the built-in `node:test` runner, so `npm test` is a single `node --test test/*.test.js` (95 cases) instead of a chain of `&&`-joined files, and pass/fail is reported by the runner rather than by a hand-rolled `console.log` helper.
+- `tools/kettle.sh`, the interactive shell helper with completion for the raw kettle CLI that was used while reverse engineering the firmware. It was never shipped in the package, is referenced by neither the README nor CI, and the command reference lives in the firmware write-ups on the wiki.
+
 ## [1.2.3](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.3) - 2026-10-26
 
 ### Fixed

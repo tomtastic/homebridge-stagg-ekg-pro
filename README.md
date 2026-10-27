@@ -64,13 +64,119 @@ Each entry in `kettles` becomes one accessory in HomeKit.
 | `syncTime` | no | Set the kettle clock to the host system's local time when Homebridge starts and once per day (default: `false`) |
 | `timeZone` | no | IANA time zone name used for clock sync, e.g. `Europe/London`. Blank = the Homebridge host timezone |
 
-The plugin polls the kettle at `pollIntervalHeating` while heating and at
-`pollIntervalIdle` while idle, so an idle kettle only touches `/temp` at the
+The plugin polls the kettle at `pollIntervalHeating` while HomeKit shows it as
+heating, and at `pollIntervalIdle` otherwise. HomeKit-visible heating covers both
+the heater running and the kettle holding water at the setpoint, so a kettle that
+has boiled and settled into a keep-warm window is still watched closely — that is
+exactly the state in which you might switch it off, and the change has to arrive
+in seconds rather than at the end of the idle interval. A kettle that is switched
+off, standing by on its base or sitting in a menu only touches `/temp` at the
 (potentially much longer) idle interval. HomeKit characteristic reads are served
-from the last poll, and a live read only happens before the first successful
-poll, so reads never wait on the kettle. These settings are configured
-separately for each kettle. A kettle started on the device itself is picked up
-at the next poll (within `pollIntervalIdle` while idle).
+from the last poll, and a live read only happens before the first successful poll,
+so reads never wait on the kettle. Both intervals are configured per kettle.
+
+The classification comes from the firmware's own state names:
+
+| Firmware `state` | HomeKit | Poll cadence |
+|---|---|---|
+| `S_Heat`, `S_StartupToTempr` (ramping to the setpoint), `S_Calib_Started` | Heating | `pollIntervalHeating` |
+| `S_Hold` (keep-warm at the setpoint) | Heating | `pollIntervalHeating` |
+| `S_Off`, `S_Standby` (powered on, nothing running), `S_OnOff`, `S_HeatOff`, `S_Finished`, `S_TIMEOUT`, `S_NoWater`, `S_FAIL`, the menu/clock states, the OTA states, `S_Calib_Halted`/`_aborted`/`_finish` | Off | `pollIntervalIdle` |
+| unreachable, unreadable, or a state name this plugin does not know | last known value | `pollIntervalHeating` for six reads, then `pollIntervalIdle` |
+
+Anything the user does from HomeKit is reported back immediately, without waiting
+for the next read: switching the kettle on or setting a setpoint publishes
+*Heating* and moves polling to `pollIntervalHeating` for up to 30 seconds, so the
+state and the rising temperature arrive in seconds. Switching it off publishes
+*Off* and takes one confirmation read at `pollIntervalHeating` before resting at
+`pollIntervalIdle`. Changes made at the kettle itself are picked up at the next
+poll of the cadence it is currently in. Reads that yield no usable state are
+retried at `pollIntervalHeating` six times and then rest, so a kettle that cannot
+be read never polls fast forever — including one that was heating and then dropped
+off the network.
+
+Each kettle logs the cadence it resolved when Homebridge starts, which makes a
+stale deployment or a surprising interval obvious from the log rather than from a
+packet capture:
+
+```
+[StaggKettle] Kettle: homebridge-stagg-ekg-pro v1.2.4, reading /temp every 10000ms
+while heating or holding temperature and every 900000ms otherwise.
+```
+
+### State changes and timeouts
+
+The poll loop is a four-state machine: every tick is one `GET /temp`, and the state
+the kettle reports decides both the HomeKit value and the delay until the next tick.
+A command from HomeKit shortcuts into the same machine — it publishes immediately
+rather than waiting for a tick, then takes a confirmation read at the fast cadence.
+
+```mermaid
+flowchart TD
+    START(["Homebridge starts: setclock, then the first tick"])
+
+    TICK{"tick: GET /temp<br/>5 s fetch timeout,<br/>legacy state CLI as the fallback"}
+
+    HEATING["HEATING<br/>S_Heat, S_StartupToTempr, S_Calib_Started<br/>HomeKit: Heating to the target<br/>next tick: pollIntervalHeating (10 s)"]
+
+    HOLDING["HOLDING<br/>S_Hold, keep-warm at the setpoint<br/>HomeKit: Heating to the target<br/>next tick: pollIntervalHeating (10 s)"]
+
+    RESTING["RESTING<br/>S_Off, S_Standby, S_OnOff, S_HeatOff, S_Finished,<br/>S_TIMEOUT, S_NoWater, S_FAIL, the menu and clock states,<br/>the OTA states, calib halted/aborted/finish<br/>HomeKit: Off<br/>next tick: pollIntervalIdle (1800 s default)"]
+
+    UNKNOWN["UNKNOWN<br/>no reply, HTTP error, malformed JSON,<br/>or an unrecognised S_* name<br/>HomeKit: keeps the last known value<br/>next tick: pollIntervalHeating (10 s)<br/>budget: 6 reads"]
+
+    START --> TICK
+
+    TICK -->|"heater running"| HEATING
+    TICK -->|"S_Hold"| HOLDING
+    TICK -->|"at rest"| RESTING
+    TICK -->|"unusable read"| UNKNOWN
+
+    HEATING -->|"water reaches the setpoint"| HOLDING
+    HEATING -->|"powered off at the kettle"| RESTING
+    HEATING -->|"reads stop answering"| UNKNOWN
+    HOLDING -->|"hold window ends"| RESTING
+    HOLDING -->|"switched off at the kettle"| RESTING
+    HOLDING -->|"reads stop answering"| UNKNOWN
+    RESTING -->|"started at the kettle"| HEATING
+    UNKNOWN -->|"1st-6th retry"| UNKNOWN
+    UNKNOWN -->|"7th unusable read: budget spent"| RESTING
+
+    ON{{"HomeKit: on"}}
+    TARGET{{"HomeKit: set a target"}}
+    OFF{{"HomeKit: off"}}
+    FAILED{{"command failed"}}
+
+    ON -->|"setstate S_Heat; publish Current=1/Target=1 at once"| HEATING
+    TARGET -->|"settempr + setstate S_Heat; echo the °C;<br/>publish Current=1/Target=1 at once"| HEATING
+    OFF -->|"setstate S_Off; publish Current=0/Target=0 at once;<br/>one confirmation tick in 10 s"| RESTING
+    FAILED -->|"SERVICE_COMMUNICATION_FAILURE;<br/>the tile reverts, cadence unchanged"| RESTING
+```
+
+The same diagram as a standalone file: [`docs/polling-flow.mmd`](docs/polling-flow.mmd).
+
+| Timeout | Value | Where it applies |
+|---|---|---|
+| `pollIntervalHeating` | default 10 000 ms | `/temp` cadence while HomeKit shows heating (heater or hold), during retries, and after a HomeKit command |
+| `pollIntervalIdle` | default 1 800 000 ms | `/temp` cadence while resting, and the minimum gap between `CurrentTemperature` publishes when nothing is heating |
+| heat confirmation window | 30 000 ms | how long a HomeKit start command holds the fast cadence without the kettle confirming |
+| switch-off confirmation | one tick | single fast read after a HomeKit stop, then straight back to idle |
+| unknown-read budget | 6 reads (60 s at the defaults) | consecutive unusable reads before the loop rests; bounds the fast cadence in every case |
+| HTTP fetch | 5 000 ms | every `/temp` and `/cli` request; a failed `/temp` falls back to the legacy `state` CLI |
+| clock sync | at startup, then every 24 h | the first `/temp` tick waits for the initial `setclock` so it cannot queue behind it |
+
+#### Measured against the diagram
+
+Captured on the LAN with `tcpdump` while the kettle boiled, held and was switched
+off, configured with `pollIntervalHeating: 10000` and `pollIntervalIdle: 900000`:
+
+| Edge in the diagram | Measured on the wire |
+|---|---|
+| set a target from HomeKit | `setsetting settempr <whole °F>` and `setstate S_Heat` back to back; the next read reports that setpoint |
+| `S_Heat` ramp, then `S_Hold` | 30 consecutive fast reads, gaps 10.1-10.4 s (mean 10.11 s), across the ramp *and* the whole keep-warm window |
+| HomeKit switch-off | `setstate S_Off`, then exactly one confirmation `/temp` 7.4 s later |
+| switched off at the kettle | keep-warm on one tick, `S_Off`/`pwm=-10` on the next, so HomeKit flips within one heating interval |
+| resting afterwards | next `/temp` 900.11 s later, and not one other request to the kettle in between |
 
 ### Target temperature precision
 
