@@ -2,11 +2,11 @@
 
 <img width="100" height="100" alt="stagg_ekg_pro_icon" src="https://github.com/user-attachments/assets/ada8283a-e9b8-42fd-a9d5-e59136745c22" />
 
+[![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
 [![Homebridge 2.0](https://img.shields.io/badge/Homebridge-2.0%20ready-brightgreen)](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0)
 [![npm version](https://badgen.net/npm/v/homebridge-stagg-ekg-pro)](https://www.npmjs.com/package/homebridge-stagg-ekg-pro)
 [![npm downloads](https://badgen.net/npm/dt/homebridge-stagg-ekg-pro)](https://www.npmjs.com/package/homebridge-stagg-ekg-pro)
 
-[Pending Verification by Homebridge]
 ___
 
 Homebridge plugin for the Fellow Stagg EKG Pro, talking to the kettle over Wi-Fi via its built-in HTTP CLI API.
