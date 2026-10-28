@@ -250,3 +250,88 @@ npm stage approve <stage-id> --otp <code>
 ```
 
 `npm stage view <version>` and `npm stage download <version>` let you inspect a stage before approving; `npm stage reject <version>` discards it. Once approved the version is live on npmjs and Homebridge UI shows the update. Each release needs a new version — republishing an existing version fails.
+
+## Telemetry sent on every boil
+
+Every heat session ends with the kettle POSTing a summary to Fellow:
+
+```
+https://qhderznbzup.firmware.fellowproducts.com/send_metrics
+```
+
+Firmware 1.2.26 moved this onto the firmware-update host when it dropped Google Cloud IoT Core. There is no switch for it — the on-screen menu has no toggle, no CLI command disables it, and the only related NVS flag (`otadis`) governs OTA rather than metrics. It also runs whether or not you ever pair the kettle with the Fellow app: the request carries device identifiers, not account credentials.
+
+### What leaves the kettle
+
+Apart from the destination and the TLS wrapper, this is the request the kettle sends at the end of an ordinary 96 °C guided boil:
+
+```http
+POST /send_metrics HTTP/1.1
+User-Agent: ESP32 HTTP Client/1.0
+Host: qhderznbzup.firmware.fellowproducts.com
+id: b8b0000000000bdfa0000000000e21e
+mac: xx:xx:xx:xx:xx:xx
+Content-Type: application/json
+Content-Length: 494
+
+{
+    "device_name": "EKG-xx-xx-xx",
+    "fw_version": "1.2.26",
+    "mode": "guided",
+    "target_temp_c": 96.11,
+    "time_to_relay_ms": 0,
+    "time_to_target_ms": 0,
+    "overshoot_c": 0.0,
+    "triac_temp_c": 25.0,
+    "temp_noise_c": 0.02,
+    "calibration_c": 1.25,
+    "altitude_raw": 32768,
+    "no_water_events": 0,
+    "session_duration_ms": 21390,
+    "uptime_s": 14895,
+    "heap_free": 4082938,
+    "heap_min_free": 4056022,
+    "heap_largest_block": 3997696,
+    "reset_reason": "sw",
+    "wifi_rssi": -50,
+    "start_temp_c": 35.61,
+    "volume_ml": -1,
+    "fast_rise_max_c": 0.16,
+    "fast_rise_raw_max_c": 4.38
+}
+```
+
+On the OTA path the same client adds `fwv` (firmware version), `ota-enabled` and `region` (derived from the language setting).
+
+| Field | Meaning |
+|---|---|
+| `id`, `mac`, `device_name` | A stable 128-bit device identifier, the interface MAC (`24:dc:c3` is the Espressif module OUI), and the advertised name built from its last three octets |
+| `calibration_c` | The offset from the last calibration — 1.25 °C here. It is not shown on the display, and on 1.2.26 the CLI endpoint returns no command output over HTTP at all, so this upload is the only place the number surfaces |
+| `mode`, `target_temp_c`, `start_temp_c` | Boil mode (`guided`/`schedule`/`normal`/`pre-boil`), the setpoint, and the water temperature when the session started |
+| `session_duration_ms`, `uptime_s` | How long the session ran and how long the kettle has been powered since its last reset |
+| `time_to_relay_ms`, `time_to_target_ms`, `overshoot_c`, `fast_rise_max_c`, `fast_rise_raw_max_c`, `triac_temp_c`, `temp_noise_c` | Internals of the thermal model for that session |
+| `no_water_events`, `reset_reason` | Lifted-with-no-water count, and why the ESP32 last restarted (`sw` = software reset) |
+| `wifi_rssi`, `altitude_raw` | Signal level, and the altitude setting in raw form |
+| `heap_free`, `heap_min_free`, `heap_largest_block` | Free heap in bytes — memory headroom, unrelated to anything the user asked |
+
+### Why it is worth blocking
+
+The `id`/`mac` pairing is fixed for the life of the unit, so every boil adds another timestamped row to a per-kettle history. Session duration plus `uptime_s` plus the arrival time of the upload is enough to sketch when a kitchen is in use and roughly where the kettle sits relative to the router (`wifi_rssi`, `altitude_raw`). `calibration_c`, `temp_noise_c` and `triac_temp_c` are per-unit hardware values — a fingerprint rather than a support requirement. HTTPS protects these values in transit but says nothing about what is collected, how long it is kept, or who can see it afterwards, and the device offers no consent, opt-out, or export path. None of it is needed for the kettle — or this plugin — to work.
+
+### Blocking it on your network
+
+Sinkhole the hostname so the kettle can never reach it. In AdGuard Home (Filters → DNS rewrites, or add the domain to a blocking list):
+
+```
+qhderznbzup.firmware.fellowproducts.com  A  0.0.0.0
+```
+
+The same line works as a Pi-hole blocked domain, a router DNS override, or a single-machine `/etc/hosts` entry:
+
+```
+0.0.0.0 qhderznbzup.firmware.fellowproducts.com
+```
+
+The kettle handles this gracefully — it logs `http init failed, dropping metrics` and carries on. Heating, hold, schedules, HomeKit, and the local HTTP interface this plugin uses (`/temp`, `/cli`) are all unaffected.
+
+One caveat: the same host serves firmware updates (`get_ota_device_firmware`, `set_firmware_time`, `confirm_firmware_install`). Temporarily disable the rewrite when you want a firmware update, then put it back.
