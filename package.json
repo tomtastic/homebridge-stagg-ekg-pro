@@ -2,9 +2,10 @@
   "name": "@tomtastic/homebridge-stagg-ekg-pro",
   "version": "1.2.4",
   "description": "Homebridge plugin for the Fellow Stagg EKG Pro (Wi-Fi HTTP CLI)",
-  "author": "Will MacCormack",
+  "author": "Tom Matthews",
   "contributors": [
-    "Calvin McLean (original author)"
+    "Calvin McLean (original author)",
+    "Will MacCormack"
   ],
   "license": "MIT",
   "main": "index.js",
