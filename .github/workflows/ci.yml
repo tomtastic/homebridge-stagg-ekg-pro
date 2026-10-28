@@ -4,9 +4,12 @@ on:
   push:
   pull_request:
 
+env:
+  HB_DIR: ${{ github.workspace }}/.homebridge-compat
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         # LTS versions Homebridge 2.x runs on; keep in sync with engines.node in
@@ -14,8 +17,8 @@ jobs:
         # matrix and the declared range drift apart.
         node: [22, 24, 26]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -24,3 +27,97 @@ jobs:
         run: npm install --engine-strict
       - name: Test
         run: npm test
+
+  # The unit tests emulate the HAP; this boots real Homebridge against the plugin,
+  # which is the check that would have caught the v1.2.4 Service#getValue break —
+  # that bug only ever showed up against the HAP Homebridge itself ships.
+  compat:
+    name: homebridge ${{ matrix.homebridge }} / node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The floor declared in engines.homebridge, so that number cannot be a lie.
+          - homebridge: 1.6.0
+            node: 22
+          # Newest release of each major Homebridge supports.
+          - homebridge: 1
+            node: 22
+          - homebridge: 2
+            node: 22
+          - homebridge: 2
+            node: 24
+          - homebridge: 2
+            node: 26
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Configure a bridge
+        run: |
+          mkdir -p "$HB_DIR"
+          cat > "$HB_DIR/config.json" <<'JSON'
+          {
+            "bridge": {
+              "name": "StaggCompat",
+              "username": "0E:1A:2B:3C:4D:5E",
+              "port": 51842,
+              "pin": "031-45-154"
+            },
+            "platforms": [
+              {
+                "platform": "StaggKettle",
+                "name": "Kettles",
+                "kettles": [
+                  { "name": "Compat Kettle", "url": "http://127.0.0.1:9" }
+                ]
+              }
+            ]
+          }
+          JSON
+      - name: Boot Homebridge with the plugin
+        run: |
+          # -Q -P loads this checkout as the only plugin. The kettle URL is
+          # deliberately unreachable: the poll loop has to degrade into log lines,
+          # never a crash. Exit 143 (SIGTERM) means Homebridge was still alive when
+          # we stopped it; anything else means it died on its own.
+          set +e
+          timeout --preserve-status 40 npx --yes "homebridge@${{ matrix.homebridge }}" \
+            -U "$HB_DIR" -P "$GITHUB_WORKSPACE" -Q > "$HB_DIR/homebridge.log" 2>&1
+          status=$?
+          if [ "$status" -ne 143 ]; then
+            echo "::error::Homebridge ${{ matrix.homebridge }} exited with $status instead of staying up"
+            cat "$HB_DIR/homebridge.log"
+            exit 1
+          fi
+      - name: Check the plugin loaded cleanly
+        run: |
+          log="$HB_DIR/homebridge.log"
+          version=$(node -p "require('./package.json').version")
+          need() {
+            if ! grep -qE "$1" "$log"; then
+              echo "::error::'$1' missing from the Homebridge log"
+              cat "$log"
+              exit 1
+            fi
+          }
+          forbid() {
+            if grep -qE "$1" "$log"; then
+              echo "::error::'$1' found in the Homebridge log"
+              cat "$log"
+              exit 1
+            fi
+          }
+          need "Loaded plugin: .*homebridge-stagg-ekg-pro@${version}"
+          need "Registering platform '.*\.StaggKettle'"
+          need "homebridge-stagg-ekg-pro v${version}, reading /temp every"
+          need "is running on port"
+          forbid "TypeError|ReferenceError|is not a function|uncaughtException|UnhandledPromiseRejection"
+          echo "StaggKettle published on Homebridge ${{ matrix.homebridge }} with node ${{ matrix.node }}"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: homebridge-${{ matrix.homebridge }}-node${{ matrix.node }}-log
+          path: ${{ env.HB_DIR }}/homebridge.log
