@@ -1,6 +1,6 @@
 {
   "name": "@tomtastic/homebridge-stagg-ekg-pro",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Homebridge plugin for the Fellow Stagg EKG Pro (Wi-Fi HTTP CLI)",
   "author": "Tom Matthews",
   "contributors": [
@@ -34,8 +34,8 @@
     "url": "https://github.com/tomtastic/homebridge-stagg-ekg-pro/issues"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "homebridge": ">=1.3.0 <3.0.0"
+    "node": "^22.12.0 || ^24.0.0 || ^26.0.0",
+    "homebridge": "^1.6.0 || ^2.0.0"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

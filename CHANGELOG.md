@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.5](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.5) - 2026-10-28
+
+### Changed
+
+- Declared Homebridge 2.0 readiness: `engines.homebridge` is now `^1.6.0 || ^2.0.0` (was `>=1.3.0 <3.0.0`). This is the range the Homebridge UI readiness check reads for the *ready for Homebridge 2* tick; the plugin already runs on Homebridge 2.x, the metadata now says so.
+- `engines.node` is now `^22.12.0 || ^24.0.0 || ^26.0.0` (was `>=20.0.0`). Homebridge 2.x requires Node 22 or newer, so a Node 20 claim could never be satisfied there.
+
+### Added
+
+- README badge linking to the [Homebridge v2 migration guide](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0), plus live npm version and download badges.
+
 ## [1.2.4](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.4) - 2026-10-27
 
 ### Fixed

@@ -104,7 +104,7 @@ stale deployment or a surprising interval obvious from the log rather than from 
 packet capture:
 
 ```
-[StaggKettle] Kettle: homebridge-stagg-ekg-pro v1.2.4, reading /temp every 10000ms
+[StaggKettle] Kettle: homebridge-stagg-ekg-pro v1.2.5, reading /temp every 10000ms
 while heating or holding temperature and every 900000ms otherwise.
 ```
 
