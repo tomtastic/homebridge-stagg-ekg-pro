@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,7 +19,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
       # npm stage publish ships with recent npm releases; make sure it exists
       - name: Install latest npm
         run: npm install -g npm@latest
@@ -46,10 +46,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # setup-node (registry-url) redirects the user config file via
-          # NPM_CONFIG_USERCONFIG; append to that file, or to ~/.npmrc when
-          # it is unset.
-          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          # Project-level .npmrc in the repo root: npm always reads it for
+          # commands run here, regardless of where the user config lives.
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
           # The npmjs step renames the package to its unscoped name; GitHub
           # Packages requires the account-scoped name, so restore it.
           # GITHUB_REPOSITORY is owner/repo; only the repo name goes in the
@@ -57,10 +56,12 @@ jobs:
           npm pkg set name="@$GITHUB_REPOSITORY_OWNER/${GITHUB_REPOSITORY##*/}"
           set -o pipefail
           if npm publish 2>&1 | tee publish.log; then
+            rm -f .npmrc
             exit 0
           fi
           if grep -qiE "EPUBLISHCONFLICT|E409|already published|previously published" publish.log; then
             echo "GitHub Packages: version already published, skipping"
+            rm -f .npmrc
           else
             cat publish.log
             exit 1
@@ -68,7 +69,7 @@ jobs:
       # Homebridge UI shows the GitHub Release notes for a version; create
       # the release from the tag's commit message (skip if it already exists).
       - name: Create GitHub release
-        if: steps.npmjs.outcome == 'success'
+        if: startsWith(github.ref, 'refs/tags/v') && steps.npmjs.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
