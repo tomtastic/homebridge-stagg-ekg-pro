@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.6](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.6) - 2026-11-02
+
+### Added
+
+- README section *Telemetry sent on every boil*: what leaves the kettle, why it is worth blocking, and how to block it on your network.
+- Reverse-engineering notes for the supported firmware releases v1.1.75SSP, v1.1.76SSP and v1.2.26, shipped as `docs/analysis_*.md` and mirroring the wiki pages linked from the README.
+- Homebridge verification badges in the README.
+
 ## [1.2.5](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.5) - 2026-10-28
 
 ### Changed

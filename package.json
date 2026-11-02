@@ -1,6 +1,6 @@
 {
   "name": "@tomtastic/homebridge-stagg-ekg-pro",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "Homebridge plugin for the Fellow Stagg EKG Pro (Wi-Fi HTTP CLI)",
   "author": "Tom Matthews",
   "contributors": [
