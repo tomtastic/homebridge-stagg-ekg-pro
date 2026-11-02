@@ -9,11 +9,6 @@ on:
 permissions:
   contents: write
   packages: write
-  # workflows:write is needed for the release step: creating a release for
-  # commits that touch .github/workflows requires it in addition to
-  # contents:write. (Step-level permissions are not valid, so this is job
-  # level; the job only runs for tag pushes and manual dispatch.)
-  workflows: write
   id-token: write # OIDC: npm trusted publishing for the npmjs stage
 
 jobs:
@@ -72,7 +67,10 @@ jobs:
             exit 1
           fi
       # Homebridge UI shows the GitHub Release notes for a version; create
-      # the release from the tag's commit message (skip if it already exists).
+      # the release (skip if it already exists). GITHUB_TOKEN cannot be
+      # granted the workflows permission (the parser rejects it), so the tag
+      # must point at the tip of main when this runs: creating a release for
+      # a commit whose unpushed diff touches .github/workflows would need it.
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v') && steps.npmjs.outcome == 'success'
         env:
