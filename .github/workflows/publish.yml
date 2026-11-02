@@ -77,8 +77,17 @@ jobs:
             echo "Release $GITHUB_REF_NAME already exists, skipping"
             exit 0
           fi
+          # Prefer the CHANGELOG section for this version; fall back to the
+          # tag's commit message when the changelog has no entry.
+          version="${GITHUB_REF_NAME#v}"
           notes_file=$(mktemp)
-          git log -1 --format=%B "$GITHUB_REF_NAME" > "$notes_file"
+          awk -v ver="$version" \
+            '$0 ~ "^## \\[" ver "\\]" {found=1; next}
+             found && /^## / {exit}
+             found {print}' CHANGELOG.md > "$notes_file"
+          if [ ! -s "$notes_file" ]; then
+            git log -1 --format=%B "$GITHUB_REF_NAME" > "$notes_file"
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "v${GITHUB_REF_NAME#v}" \
             --notes-file "$notes_file" \
