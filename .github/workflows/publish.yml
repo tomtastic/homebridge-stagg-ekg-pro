@@ -36,7 +36,7 @@ jobs:
           if npm stage publish --registry https://registry.npmjs.org 2>&1 | tee publish.log; then
             exit 0
           fi
-          if grep -qiE "EPUBLISHCONFLICT|E409|already published|previously published" publish.log; then
+          if grep -qiE "EPUBLISHCONFLICT|E409|already published|previously published|already staged" publish.log; then
             echo "npmjs: version already published, skipping"
           else
             cat publish.log
@@ -46,7 +46,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          # setup-node (registry-url) redirects the user config file via
+          # NPM_CONFIG_USERCONFIG; append to that file, or to ~/.npmrc when
+          # it is unset.
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
           # The npmjs step renames the package to its unscoped name; GitHub
           # Packages requires the account-scoped name, so restore it.
           # GITHUB_REPOSITORY is owner/repo; only the repo name goes in the
