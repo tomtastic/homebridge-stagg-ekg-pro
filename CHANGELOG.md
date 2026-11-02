@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.7](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.7) - 2026-11-02
+
+### Changed
+
+- Republished through the trusted publishing (OIDC) pipeline: the publish workflow now stages to npmjs with GitHub Actions' short-lived OIDC token instead of a long-lived npm token, which npm is deprecating for direct publishing. Package contents are unchanged from 1.2.6.
+
 ## [1.2.6](https://github.com/tomtastic/homebridge-stagg-ekg-pro/releases/tag/v1.2.6) - 2026-11-02
 
 ### Added

@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # OIDC: npm trusted publishing for the npmjs stage
 
 jobs:
   publish:
@@ -17,6 +18,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
       # npm stage publish ships with recent npm releases; make sure it exists
       - name: Install latest npm
         run: npm install -g npm@latest
@@ -24,14 +26,12 @@ jobs:
         run: npm test
       - name: Stage publish to npmjs
         id: npmjs
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm pkg set name="homebridge-stagg-ekg-pro"
-          # npm does not read NODE_AUTH_TOKEN itself; write the token for
-          # the target registry into .npmrc (setup-node only does this when
-          # registry-url is set).
-          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          # Trusted publishing (OIDC): npm detects the GitHub Actions OIDC
+          # environment (id-token: write) and authenticates with the
+          # short-lived JWT allowed by the package's trusted publisher
+          # config, so no npm token is stored in the repo.
           set -o pipefail
           if npm stage publish --registry https://registry.npmjs.org 2>&1 | tee publish.log; then
             exit 0
