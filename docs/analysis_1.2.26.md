@@ -460,7 +460,7 @@ registration (11 entries):
 |----------|--------------|---------|--------|
 | `/` | 1 (GET) | 0x400ef3f4 | unchanged |
 | `/temp` | 1 (GET) | 0x400ef08 | **new** |
-| `/cli` | 1 (GET) | 0x400ef870 | unchanged |
+| `/cli` | 1 (GET) | 0x400ef870 | **handler rewritten: output channel removed** |
 | `/upload` | 1 (GET) | 0x400ef454 | unchanged |
 | `/uploadfw` | 3 (POST) | 0x400efe8c | unchanged |
 | `/uploadfw` | 6 | 0x400eef7c | **new** (inferred `OPTIONS`/CORS preflight) |
@@ -531,15 +531,59 @@ spec).
 
 ### `/cli` Protocol
 
-`GET /cli?cmd=<URL-encoded command>` — unchanged from v1.1.76: the handler
-converts `+` to spaces, passes the string to the `esp_console` dispatcher
-shared with the UART CLI, and returns `text/html` with the command form plus
-CLI/log output. Any registered command can be invoked over HTTP.
+`GET /cli?cmd=<URL-encoded command>` — the handler (`0x400ef870`) converts
+`+` to spaces, passes the string to the `esp_console` dispatcher shared
+with the UART CLI, and **executes the command — but in v1.2.26 it returns
+only the 186-byte HTML form, no command output**. Live-verified 2026-11-09
+(device `192.168.8.196`): `/cli?cmd=lpwhy|version|help|<bogus>` all return
+exactly 186 bytes (`text/html`, chunked, HTTP 200) while `/temp` returns
+data. Commands still run (same dispatch path as v1.1.76); only the output
+channel was removed (see below). Any registered command can still be
+invoked over HTTP.
 
 The command table is at DROM file `0xf144` (VA `0x3f40f144`): **89 entries**
 of 12 bytes `{name, desc, handler}` (v1.1.76: 80). As in v1.1.76,
 `help`, `version`, `factory`, and `settempr` resolve outside the table
 (strings present, same dispatch path).
+
+#### `/cli` output channel removed (v1.1.76 → v1.2.26)
+
+The v1.1.76 handler (`0x400ea154`, Ghidra `ekg1176` project) redirected
+console output into the HTTP response: after sending the form it stored
+the request pointer in global `0x3ffd1500` and set capture state
+(`0x3ffd1504`–`0x3ffd1510`, offset `0x3ffc0c48`) against a PSRAM capture
+buffer (base `0x3f8012e0`, marker `0x3f8022e0`), ran the command via the
+redirect routine (`0x400dcf70` — `log_redirect_http_start %d task %p '%s'`,
+DROM VA `0x3f40c5cf`), flushed the captured log output as extra HTTP
+chunks (`output_log_to_http task %p`, VA `0x3f40c5b4`), then restored the
+globals and sent the terminating chunk.
+
+In v1.2.26 all of that is gone. The rewritten handler receives the query
+into a different PSRAM buffer (`0x3f800000`), sends the form, calls the
+parse+dispatch routine (`0x400ef808` → dispatcher `0x400da200`) and
+immediately sends the final empty chunk. The strings `output_log_to_http`
+and `log_redirect_http_start` are absent from the v1.2.26 DROM (verified
+against the raw image, file `0x20`–`0xc1cd8`), so the redirect/task code
+was dropped from the build, not merely un-called.
+
+Command output in v1.2.26 therefore goes to the normal log path only:
+esp_log vprintf callback slot → esp_console `stdout_output` → **UART0**
+(both versions carry the `stdout_output task %p` /
+`ERROR: stdout_output recursion` strings; BLE CLI is an input channel
+only — see the `E: UART and BLE CLI collide` guard). The surviving v1.2.26
+string `I (%u) %s: after redirect_stdout` (VA `0x3f40b664`) belongs to
+`app_main` (`0x400e863c`, `main.cpp`: `main start` → redirect →
+`after redirect_stdout`), a one-time boot-time stdout setup — not the
+HTTP redirect.
+
+**Patchability:** not re-enable-able in place. (1) No dormant redirect
+code remains in the binary to call (strings ⇒ functions absent).
+(2) The v1.2.26 IROM segment is fully used — code runs to the segment end
+(VA `0x401b20e8`, free tail `0`) — so no new code fits without repacking
+the image. (3) Any modification invalidates the vendor validation hash at
+`0x1CFFE0`–`0x1D000F` (checksum `0x1CFFDC`), whose verification by the
+bootloader is unknown. To read bench-command output on v1.2.26: use
+UART0, or run v1.1.76 where `/cli` returns the output in the response.
 
 ### CLI Commands
 
@@ -669,9 +713,12 @@ validation hash (`7aecb485…c4302702`, valid) at `0x1CFFE0`–`0x1D000F`;
 - **IRAM 2**: `VA = 0x40087084 + (file − 0x1b20f4)`
 - **RTC_DRAM**: `VA = 0x3ff80000 + (file − 0xc1ce0)`
 
-> **Note:** The v1.1.76 images had no per-segment descriptors (segment data
-> began directly at `File offs`), so the older file-offset mappings are off
-> by 8 bytes for this image. Use the table above for v1.2.26-only offsets.
+> **Note:** The v1.1.76 images use the *same* 8-byte per-segment descriptor
+> format as this one (`{load_addr, size}` little-endian at
+> `data_file_offset − 8`). Verified for `firmware_1.1.76SSP.img`: DROM data
+> at file `0x20` (VA `0x3f400020`, size `0x89848`), IROM data at file
+> `0x90020` (VA `0x400d0020`, size `0xe6194`). An earlier note claiming the
+> v1.1.76 images had no descriptors was wrong.
 
 **When loading into Ghidra**: load each segment at its ESP32 load address
 (not its file offset), skipping the 8-byte descriptor. IROM is typically
