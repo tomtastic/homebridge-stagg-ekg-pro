@@ -4,6 +4,7 @@
 
 [![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
 [![Homebridge 2.0](https://img.shields.io/badge/Homebridge-2.0%20ready-brightgreen)](https://github.com/homebridge/homebridge/wiki/Updating-To-Homebridge-v2.0)
+[![ci](https://github.com/tomtastic/homebridge-stagg-ekg-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/tomtastic/homebridge-stagg-ekg-pro/actions/workflows/ci.yml)
 [![npm version](https://badgen.net/npm/v/homebridge-stagg-ekg-pro)](https://www.npmjs.com/package/homebridge-stagg-ekg-pro)
 [![npm downloads](https://badgen.net/npm/dt/homebridge-stagg-ekg-pro)](https://www.npmjs.com/package/homebridge-stagg-ekg-pro)
 
